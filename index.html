@@ -48,6 +48,7 @@ body.cut .ov,body.text .ov{cursor:crosshair}
 .hit{position:absolute;z-index:1;cursor:pointer}.hit:hover{outline:2px solid #2563eb;background:#2563eb18}
 body.text .hit,body.cut .hit{pointer-events:none}
 #zb{margin:0 auto}#doc{transform-origin:0 0;width:max-content}.ob.lf{z-index:1}
+.gl{position:absolute;background:#ec4899;z-index:9;pointer-events:none}body.nodet .hit{display:none}
 </style></head><body>
 <header>
 <b>PDF Editor</b>
@@ -58,6 +59,7 @@ body.text .hit,body.cut .hit{pointer-events:none}
 <button data-t="edit" class="on" title="Click any text to edit it">Edit text</button>
 <button data-t="text" title="Click anywhere to add new text / fill forms">Add text</button>
 <button data-t="cut" title="Drag a box around a logo, seal or stamp to make it movable">Move logo/stamp</button>
+<button id="det" class="on" title="Click any picture or shape in the PDF to move, rotate or resize it">Shape &amp; picture detect</button><button id="emb" class="on" title="Use the PDF&#39;s own embedded font while editing (best match; helps Bijoy/ANSI fonts)">PDF&#39;s own font</button>
 <button id="img">Add image / signature</button><input type="file" id="fi" accept="image/*" hidden>
 <span class="sep"></span>
 <input id="ff" list="fl" placeholder="Font (type to search)" style="width:190px"><datalist id="fl"></datalist>
@@ -117,7 +119,7 @@ $('#f').onchange=e=>e.target.files[0]&&openFile(e.target.files[0]);
 addEventListener('dragover',e=>e.preventDefault());
 function handleFiles(fl){for(const f of fl){if(/pdf/i.test(f.type+f.name))return openFile(f);if(/^image/.test(f.type)&&bytes)return addImage(f)}}
 addEventListener('drop',e=>{e.preventDefault();handleFiles(e.dataTransfer.files)});
-const UND=[],RED=[];let Z=1,clip=null;
+const UND=[],RED=[];let Z=1,clip=null,useEmb=true;
 function push(u,r){UND.push({u,r});RED.length=0}
 function undo(){const a=UND.pop();if(a){a.u();RED.push(a);select(null)}}
 function redo(){const a=RED.pop();if(a){a.r();UND.push(a);select(null)}}
@@ -171,35 +173,34 @@ async function renderPage(pdf,n){
  const pg=await pdf.getPage(n),vp=pg.getViewport({scale:SC});
  const w=mk('div','pg');w.style.width=vp.width+'px';w.style.height=vp.height+'px';
  const c=cvs(vp.width,vp.height);
- const tk=pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp}),ol=tk._internalRenderTask&&tk._internalRenderTask.operatorList;
- await tk.promise;
+ const tk=pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp});let ol=liveList(pg,tk);
+ await tk.promise;const live=!!(ol||(ol=liveList(pg,tk)));
  const ov=mk('div','ov');w.append(c,ov);$('#doc').append(w);
  w._c=c;w._n=n;w._ov=ov;cur=cur||w;
  w.addEventListener('pointerdown',()=>cur=w,true);
- const tc=await pg.getTextContent(),runs=[];let rn=null;
+ const tc=await pg.getTextContent(),runs=[],FI={};let rn=null;
+ const finfo=id=>FI[id]||(FI[id]=(()=>{let nm='',ld='';try{const f=pg.commonObjs.get(id);nm=(f.name||'').replace(/^[A-Z]{6}\+/,'');ld=f.loadedName||''}catch(e){}
+  return{nm,ld,b:/bold|black|heavy/i.test(nm),i:/italic|oblique/i.test(nm)}})());
  for(const it of tc.items){
-  const t=pdfjsLib.Util.transform(vp.transform,it.transform),fs=Math.hypot(t[0],t[1])||10,x=t[4],b=t[5],wd=it.width*SC;
+  const t=pdfjsLib.Util.transform(vp.transform,it.transform),fs=Math.hypot(t[0],t[1])||10,x=t[4],b=t[5],wd=it.width*SC,fi=finfo(it.fontName);
   if(!it.str.trim()){if(rn&&it.str)rn.pend=true;continue}
   const gap=rn?x-(rn.x+rn.w):0;
-  if(rn&&rn.fn===it.fontName&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>-.4*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
-   if(rn.pend||gap>.18*rn.fs)rn.s+=' ';rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false}
-  else{rn={s:it.str,x,b,fs,w:wd,fn:it.fontName,pend:false};runs.push(rn)}
+  if(rn&&rn.b2===fi.b&&rn.i2===fi.i&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>-.4*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
+   if(rn.pend||gap>.18*rn.fs)rn.s+=' ';rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false;rn.cnt[it.fontName]=(rn.cnt[it.fontName]||0)+it.str.length}
+  else{rn={s:it.str,x,b,fs,w:wd,pend:false,b2:fi.b,i2:fi.i,cnt:{[it.fontName]:it.str.length}};runs.push(rn)}
  }
  for(const r of runs){
-  const fs=r.fs,st=tc.styles[r.fn]||{},bn=/[\u0980-\u09FF]/.test(r.s);
-  let fn='';try{fn=pg.commonObjs.get(r.fn).name||''}catch(e){}
-  fn=fn.replace(/^[A-Z]{6}\+/,'');
+  const fid=Object.keys(r.cnt).sort((p,q)=>r.cnt[q]-r.cnt[p])[0],fi=finfo(fid),fn=fi.nm,fs=r.fs,st=tc.styles[fid]||{},bn=/[\u0980-\u09FF]/.test(r.s);
   const fam=(fn.split(/[-,]/)[0]||'').replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
-  const m=matchFont(fn),pf=m||fam;if(fn)used.set(fn,m);
-  const x=r.x,y=r.b-fs*.94,cw=Math.max(r.w,4),ch=fs*1.2,gen=st.fontFamily||'sans-serif';
-  const e=mkTi(ov,{x,y,fs,txt:r.s,pf,
-   fam:bn?`"${pf}","${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`,
-   b:/bold|black|heavy/i.test(fn),i:/italic|oblique/i.test(fn)});
-  const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg)});
+  const m=matchFont(fn),pf=m||(bn?'Nirmala UI':fam);if(fn)used.set(fn,m);
+  const x=r.x,y=r.b-fs*.94,cw=Math.max(r.w,4),ch=fs*1.2,gen=st.fontFamily||'sans-serif',emb=useEmb&&!bn?fi.ld:'';
+  const stk=bn?`"${pf}","${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`;
+  const e=mkTi(ov,{x,y,fs,txt:r.s,pf,fam:(emb?`"${emb}",`:'')+stk,b:fi.b,i:fi.i});
+  const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg),stk,emb});
   e.style.minWidth=cw+'px';
  }
  fit(ov);
- w._pg=pg;w._vp=vp;w._lifts=[];w._ol=ol;if(ol&&ol.fnArray)scanObjects(w).catch(()=>{});
+ w._pg=pg;w._vp=vp;w._lifts=[];w._ol=ol;w._live=live;scanObjects(w).catch(()=>{});
 }
 function fit(ov){
  const els=[...ov.querySelectorAll('.ti')],ws=els.map(e=>{const r=document.createRange();r.selectNodeContents(e);return r.getBoundingClientRect().width});
@@ -214,9 +215,9 @@ function mkTi(ov,o){
  e.addEventListener('focus',()=>{select(e);e._s=snap(e)});
  e.addEventListener('blur',()=>{const a=e._s,b=snap(e);if(a&&JSON.stringify(a)!==JSON.stringify(b))push(()=>put(e,a),()=>put(e,b))});
  e.addEventListener('pointerdown',ev=>{cur=ov.parentNode;select(e)});
- e.addEventListener('input',()=>mark(e));
+ e.addEventListener('input',()=>{mark(e);if(sel===e)placeGrip()});
  e.addEventListener('paste',ev=>{ev.preventDefault();document.execCommand('insertText',false,ev.clipboardData.getData('text/plain'))});
- e.addEventListener('keydown',ev=>{if(ev.key==='Escape')e.blur()});
+ e.addEventListener('keydown',ev=>{if(ev.key==='Escape')e.blur();if(ev.key==='Enter'){ev.preventDefault();document.execCommand('insertText',false,'\n')}});
  return e;
 }
 function mark(e){e.dataset.ed=1;e.style.color=e.dataset.col||'#000';e.style.background=e.dataset.bg||'transparent'}
@@ -235,16 +236,25 @@ function select(el){
   $('#bgbox').style.display='flex';if(el.dataset.bg)$('#bgc').value=el.dataset.bg;
  }
 }
-function placeGrip(){if(sel&&sel.classList.contains('ti')){grip.style.display='block';grip.style.left=sel.offsetLeft-18+'px';grip.style.top=sel.offsetTop+'px'}}
+function placeGrip(){if(sel&&sel.classList.contains('ti')){const pw=sel.parentNode.offsetWidth;
+ grip.style.display='block';grip.style.left=Math.min(sel.offsetLeft+sel.offsetWidth+10,pw-20)+'px';grip.style.top=sel.offsetTop+Math.max(0,sel.offsetHeight/2-8)+'px'}}
 grip.onpointerdown=e=>{if(sel){mark(sel);drag(e,sel,placeGrip)}};
-function drag(e,el,fn){e.preventDefault();const a=snap(el),sx=e.clientX,sy=e.clientY,l=el.offsetLeft,t=el.offsetTop;
- const mv=v=>{el.style.left=l+(v.clientX-sx)/Z+'px';el.style.top=t+(v.clientY-sy)/Z+'px';fn&&fn()};
- const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);const b=snap(el);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(el,a),()=>put(el,b))};
+function drag(e,el,fn){e.preventDefault();const a=snap(el),sx=e.clientX,sy=e.clientY,l=el.offsetLeft,t=el.offsetTop,ov=el.parentNode;
+ const o=[...ov.children].filter(n=>n!==el&&(n.classList.contains('ti')||n.classList.contains('ob'))).map(n=>({l:n.offsetLeft,r:n.offsetLeft+n.offsetWidth,t:n.offsetTop,b:n.offsetTop+n.offsetHeight}));
+ const gx=mk('div','gl'),gy=mk('div','gl');gx.style.cssText='width:1px;top:0;bottom:0;display:none';gy.style.cssText='height:1px;left:0;right:0;display:none';ov.append(gx,gy);
+ const mv=v=>{let x=l+(v.clientX-sx)/Z,y=t+(v.clientY-sy)/Z;if(v.shiftKey){Math.abs(v.clientX-sx)>Math.abs(v.clientY-sy)?y=t:x=l}
+  const w=el.offsetWidth,h=el.offsetHeight,th=5/Z;let gl=null,gt=null;
+  for(const q of o){
+   for(const[c,p]of[[q.l,x],[q.r,x],[q.l,x+w],[q.r,x+w],[(q.l+q.r)/2,x+w/2]])if(gl===null&&Math.abs(c-p)<th){x+=c-p;gl=c}
+   for(const[c,p]of[[q.t,y],[q.b,y],[q.t,y+h],[q.b,y+h],[(q.t+q.b)/2,y+h/2]])if(gt===null&&Math.abs(c-p)<th){y+=c-p;gt=c}}
+  el.style.left=x+'px';el.style.top=y+'px';
+  gx.style.display=gl===null?'none':'block';gx.style.left=gl+'px';gy.style.display=gt===null?'none':'block';gy.style.top=gt+'px';fn&&fn()};
+ const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);gx.remove();gy.remove();const b=snap(el);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(el,a),()=>put(el,b))};
  addEventListener('pointermove',mv);addEventListener('pointerup',up)}
 const isTi=()=>sel&&sel.classList.contains('ti');
 $('#ff').onfocus=e=>{e.target.dataset.o=e.target.value;e.target.value=''};
 $('#ff').onblur=e=>{if(!e.target.value)e.target.value=e.target.dataset.o||''};
-$('#ff').onchange=e=>{if(isTi()&&e.target.value)track(sel,()=>{sel.style.letterSpacing='';sel.dataset.fam=e.target.value;sel.style.fontFamily=`"${e.target.value}",sans-serif,"Noto Sans Bengali","Nirmala UI"`;mark(sel)})};
+$('#ff').onchange=e=>{if(isTi()&&e.target.value)track(sel,()=>{sel.style.letterSpacing='';sel.dataset.fam=e.target.value;delete sel.dataset.emb;sel.style.fontFamily=`"${e.target.value}",sans-serif,"Noto Sans Bengali","Nirmala UI"`;mark(sel)})};
 $('#fz').oninput=e=>{if(isTi()&&+e.target.value>0)track(sel,()=>{sel.style.letterSpacing='';sel.style.fontSize=e.target.value*SC+'px';mark(sel)})};
 $('#b').onclick=()=>{if(isTi())track(sel,()=>{sel.style.fontWeight=sel.style.fontWeight==='700'?'400':'700';mark(sel)})};
 $('#i').onclick=()=>{if(isTi())track(sel,()=>{sel.style.fontStyle=sel.style.fontStyle==='italic'?'normal':'italic';mark(sel)})};
@@ -254,6 +264,8 @@ function delSel(){const e=sel;if(!e)return;
  if(e.classList.contains('ob')||e.classList.contains('nw')){const p=e.parentNode,nx=e.nextSibling;e.remove();select(null);push(()=>p.insertBefore(e,nx),()=>e.remove())}
  else track(e,()=>{e.textContent='';mark(e)})}
 $('#undo').onclick=undo;$('#redo').onclick=redo;$('#zi').onclick=()=>setZoom(Z*1.15);$('#zo').onclick=()=>setZoom(Z/1.15);$('#zl').onclick=()=>setZoom(1);
+$('#det').onclick=()=>{document.body.classList.toggle('nodet');$('#det').classList.toggle('on',!document.body.classList.contains('nodet'))};
+$('#emb').onclick=()=>{if(bytes&&!confirm('Switch the font mode and reload the PDF? Unsaved edits will be lost.'))return;useEmb=!useEmb;$('#emb').classList.toggle('on',useEmb);if(bytes)loadBytes(bytes)};
 $('#reset').onclick=()=>{if(bytes&&confirm('Discard ALL edits and reload the original PDF?'))loadBytes(bytes)};
 document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{
  tool=b.dataset.t;document.querySelectorAll('[data-t]').forEach(x=>x.classList.toggle('on',x===b));
@@ -291,8 +303,10 @@ function cutRegion(w,x,y,ww,hh){
 
 /* ---------- click any existing picture / shape ---------- */
 const inter=(a,b)=>{const r={x0:Math.max(a.x0,b.x0),y0:Math.max(a.y0,b.y0),x1:Math.min(a.x1,b.x1),y1:Math.min(a.y1,b.y1)};if(r.x1>r.x0&&r.y1>r.y0){r.ell=a.ell||b.ell;return r}return null};
+function liveList(pg,tk){const a=tk&&tk._internalRenderTask&&tk._internalRenderTask.operatorList;if(a&&a.fnArray)return a;
+ try{for(const st of pg._intentStates.values())if(st.displayReadyCapability&&st.operatorList&&st.operatorList.fnArray)return st.operatorList}catch(e){}return null}
 async function scanObjects(w){
- const pg=w._pg,vp=w._vp,O=pdfjsLib.OPS,ol=w._ol,F=ol.fnArray,A=ol.argsArray,mul=pdfjsLib.Util.transform;
+ const pg=w._pg,vp=w._vp,O=pdfjsLib.OPS,ol=w._ol||await pg.getOperatorList(),F=ol.fnArray,A=ol.argsArray,mul=pdfjsLib.Util.transform;
  w._ol=ol;w._F0=F.slice();w._dead=new Map();
  const fills=[O.fill,O.eoFill,O.fillStroke,O.eoFillStroke,O.closeFillStroke,O.closeEOFillStroke];
  const imgs=[O.paintImageXObject,O.paintInlineImageXObject,O.paintJpegXObject,O.paintImageMaskXObject,O.paintSolidColorImageMask];
@@ -338,7 +352,7 @@ const rend=async(pg,vp,tr)=>{const c=cvs(vp.width,vp.height);await pg.render({ca
 async function lift(w,o,hit){
  if(busy)return;busy=true;document.body.style.cursor='progress';
  try{
-  const pg=w._pg,vp=w._vp,HS=Math.min(3,3800/(vp.width/SC),3800/(vp.height/SC)),f=HS/SC,v3=pg.getViewport({scale:HS});
+  if(!w._live)throw 0;const pg=w._pg,vp=w._vp,HS=Math.min(3,3800/(vp.width/SC),3800/(vp.height/SC)),f=HS/SC,v3=pg.getViewport({scale:HS});
   setOps(w);if(!w._cur3)w._cur3=await rend(pg,v3);
   const A=w._cur3,d0=cvs(w._c.width,w._c.height);d0.getContext('2d').drawImage(w._c,0,0);
   w._dead.set(o.i,o.k);setOps(w);const B=await rend(pg,v3);
@@ -363,7 +377,7 @@ async function lift(w,o,hit){
    ()=>{w._ov.append(ob);w._lifts.push(L);w._dead.set(o.i,o.k);setOps(w);w._cur3=B;w._c.getContext('2d').drawImage(d1,0,0);hit.remove()});
  }catch(err){
   w._dead.delete(o.i);try{setOps(w)}catch(x){}hit.remove();const b=o.b;
-  cutRegion(w,Math.max(0,b.x0),Math.max(0,b.y0),b.x1-b.x0,b.y1-b.y0);
+  try{cutRegion(w,Math.max(0,b.x0),Math.max(0,b.y0),b.x1-b.x0,b.y1-b.y0)}catch(x){}
  }
  busy=false;document.body.style.cursor='';
 }
@@ -417,7 +431,7 @@ async function textPng(e){
  return {url:c.toDataURL(),w:W/S,h:H/S};
 }
 async function drawReal(doc,pg,H,k,e,fm){
- try{const cs=getComputedStyle(e),txt=e.innerText.replace(/\n$/,'');
+ try{if(e.dataset.emb)return false;const cs=getComputedStyle(e),txt=e.innerText.replace(/\n$/,'');
   if(/[\u0980-\u09FF]/.test(txt)||!LF.length||!window.fontkit)return false;
   if(cs.letterSpacing!=='normal'&&Math.abs(parseFloat(cs.letterSpacing))>.3)return false;
   const want=(+cs.fontWeight>=600?'b':'')+(cs.fontStyle==='italic'?'i':'');
