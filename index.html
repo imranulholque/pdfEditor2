@@ -171,31 +171,41 @@ async function renderPage(pdf,n){
  const pg=await pdf.getPage(n),vp=pg.getViewport({scale:SC});
  const w=mk('div','pg');w.style.width=vp.width+'px';w.style.height=vp.height+'px';
  const c=cvs(vp.width,vp.height);
- await pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp}).promise;
+ const tk=pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp}),ol=tk._internalRenderTask&&tk._internalRenderTask.operatorList;
+ await tk.promise;
  const ov=mk('div','ov');w.append(c,ov);$('#doc').append(w);
  w._c=c;w._n=n;w._ov=ov;cur=cur||w;
  w.addEventListener('pointerdown',()=>cur=w,true);
- const tc=await pg.getTextContent();
+ const tc=await pg.getTextContent(),runs=[];let rn=null;
  for(const it of tc.items){
-  if(!it.str.trim())continue;
-  const t=pdfjsLib.Util.transform(vp.transform,it.transform),fs=Math.hypot(t[0],t[1])||10,st=tc.styles[it.fontName]||{};
-  let fn='';try{fn=pg.commonObjs.get(it.fontName).name||''}catch(e){}
+  const t=pdfjsLib.Util.transform(vp.transform,it.transform),fs=Math.hypot(t[0],t[1])||10,x=t[4],b=t[5],wd=it.width*SC;
+  if(!it.str.trim()){if(rn&&it.str)rn.pend=true;continue}
+  const gap=rn?x-(rn.x+rn.w):0;
+  if(rn&&rn.fn===it.fontName&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>-.4*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
+   if(rn.pend||gap>.18*rn.fs)rn.s+=' ';rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false}
+  else{rn={s:it.str,x,b,fs,w:wd,fn:it.fontName,pend:false};runs.push(rn)}
+ }
+ for(const r of runs){
+  const fs=r.fs,st=tc.styles[r.fn]||{},bn=/[\u0980-\u09FF]/.test(r.s);
+  let fn='';try{fn=pg.commonObjs.get(r.fn).name||''}catch(e){}
   fn=fn.replace(/^[A-Z]{6}\+/,'');
   const fam=(fn.split(/[-,]/)[0]||'').replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
   const m=matchFont(fn),pf=m||fam;if(fn)used.set(fn,m);
-  const x=t[4],y=t[5]-fs*.94,cw=Math.max(it.width*SC,4),ch=fs*1.2;
-  const e=mkTi(ov,{x,y,fs,txt:it.str,
-   pf,fam:`"${pf}","${fam}","${fn}",${st.fontFamily||'sans-serif'},"Noto Sans Bengali","Nirmala UI"`,
+  const x=r.x,y=r.b-fs*.94,cw=Math.max(r.w,4),ch=fs*1.2,gen=st.fontFamily||'sans-serif';
+  const e=mkTi(ov,{x,y,fs,txt:r.s,pf,
+   fam:bn?`"${pf}","${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`,
    b:/bold|black|heavy/i.test(fn),i:/italic|oblique/i.test(fn)});
   const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg)});
   e.style.minWidth=cw+'px';
  }
  fit(ov);
- w._pg=pg;w._vp=vp;w._lifts=[];scanObjects(w).catch(()=>{});
+ w._pg=pg;w._vp=vp;w._lifts=[];w._ol=ol;if(ol&&ol.fnArray)scanObjects(w).catch(()=>{});
 }
 function fit(ov){
  const els=[...ov.querySelectorAll('.ti')],ws=els.map(e=>{const r=document.createRange();r.selectNodeContents(e);return r.getBoundingClientRect().width});
- els.forEach((e,i)=>{const n=e.textContent.length,d=+e.dataset.cw-ws[i];if(n&&Math.abs(d)>.5)e.style.letterSpacing=(d/n)+'px'});
+ els.forEach((e,i)=>{const n=e.textContent.length,cw=+e.dataset.cw,d=cw-ws[i];if(!n||ws[i]<1||Math.abs(d)<=.5)return;
+  if(/[\u0980-\u09FF]/.test(e.textContent))e.style.fontSize=parseFloat(e.style.fontSize)*Math.max(.75,Math.min(1.3,cw/ws[i]))+'px';
+  else e.style.letterSpacing=Math.max(-3,Math.min(3,d/n))+'px'});
 }
 function mkTi(ov,o){
  const e=mk('div','ti');e.contentEditable='true';e.spellcheck=false;e.dataset.fam=o.pf||'Arial';e.textContent=o.txt;
@@ -213,6 +223,7 @@ function mark(e){e.dataset.ed=1;e.style.color=e.dataset.col||'#000';e.style.back
 
 /* ---------- selection & toolbar ---------- */
 function select(el){
+ if(el&&!el.classList.contains('ti')){const a=document.activeElement;if(a&&a.isContentEditable)a.blur()}
  sel&&sel.classList.remove('sel');sel=el;grip.style.display='none';$('#bgbox').style.display='none';
  if(!el)return;el.classList.add('sel');
  if(el.classList.contains('ti')){
@@ -250,6 +261,7 @@ document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{
 
 /* ---------- page clicks: add text / cut region ---------- */
 document.addEventListener('pointerdown',e=>{
+ const ae=document.activeElement;if(ae&&ae.isContentEditable&&!e.target.closest('.ti'))ae.blur();
  const ov=e.target.closest&&e.target.closest('.ov');
  if(!ov){if(!e.target.closest('header')&&!e.target.closest('#grip'))select(null);return}
  if(e.target!==ov)return;
@@ -278,9 +290,9 @@ function cutRegion(w,x,y,ww,hh){
 }
 
 /* ---------- click any existing picture / shape ---------- */
-const inter=(a,b)=>{const r={x0:Math.max(a.x0,b.x0),y0:Math.max(a.y0,b.y0),x1:Math.min(a.x1,b.x1),y1:Math.min(a.y1,b.y1)};return r.x1>r.x0&&r.y1>r.y0?r:null};
+const inter=(a,b)=>{const r={x0:Math.max(a.x0,b.x0),y0:Math.max(a.y0,b.y0),x1:Math.min(a.x1,b.x1),y1:Math.min(a.y1,b.y1)};if(r.x1>r.x0&&r.y1>r.y0){r.ell=a.ell||b.ell;return r}return null};
 async function scanObjects(w){
- const pg=w._pg,vp=w._vp,O=pdfjsLib.OPS,ol=await pg.getOperatorList(),F=ol.fnArray,A=ol.argsArray,mul=pdfjsLib.Util.transform;
+ const pg=w._pg,vp=w._vp,O=pdfjsLib.OPS,ol=w._ol,F=ol.fnArray,A=ol.argsArray,mul=pdfjsLib.Util.transform;
  w._ol=ol;w._F0=F.slice();w._dead=new Map();
  const fills=[O.fill,O.eoFill,O.fillStroke,O.eoFillStroke,O.closeFillStroke,O.closeEOFillStroke];
  const imgs=[O.paintImageXObject,O.paintInlineImageXObject,O.paintJpegXObject,O.paintImageMaskXObject,O.paintSolidColorImageMask];
@@ -303,7 +315,7 @@ async function scanObjects(w){
     else if(o===O.curveTo){pp.push([q[j],q[j+1]],[q[j+2],q[j+3]],[q[j+4],q[j+5]]);j+=6}
     else if(o===O.curveTo2||o===O.curveTo3){pp.push([q[j],q[j+1]],[q[j+2],q[j+3]]);j+=4}
     else if(o===O.rectangle){pp.push([q[j],q[j+1]],[q[j]+q[j+2],q[j+1]+q[j+3]]);j+=4}}
-   if(pp.length)pb=bb(m,pp,pb)}
+   if(pp.length){const first=!pb;pb=bb(m,pp,pb);const ops=a[0];pb.ell=first&&ops.filter(o=>o===O.curveTo).length>=4&&!ops.some(o=>o===O.lineTo||o===O.rectangle)?1:0}}
   else if(f===O.clip||f===O.eoClip){if(pb)c=c?(inter(c,pb)||{x0:0,y0:0,x1:0,y1:0}):pb}
   else if(fills.includes(f)){add('p',i,pb);pb=null}
   else if(f===O.stroke||f===O.closeStroke||f===O.endPath)pb=null;
@@ -311,7 +323,7 @@ async function scanObjects(w){
  }
  const W=vp.width,H=vp.height;
  objs.filter(o=>{const bw=o.b.x1-o.b.x0,bh=o.b.y1-o.b.y0;return isFinite(bw+bh)&&bw>=8&&bh>=8&&!(bw>W*.95&&bh>H*.95)}).slice(-500).forEach(o=>{
-  const h=mk('div','hit');h.style.cssText=`left:${o.b.x0}px;top:${o.b.y0}px;width:${o.b.x1-o.b.x0}px;height:${o.b.y1-o.b.y0}px`;
+  const h=mk('div','hit');h.style.cssText=`left:${o.b.x0}px;top:${o.b.y0}px;width:${o.b.x1-o.b.x0}px;height:${o.b.y1-o.b.y0}px${o.b.ell?';border-radius:50%':''}`;
   h.title='Click to move / rotate / resize';
   h.addEventListener('pointerdown',e=>{if(tool!=='edit')return;e.preventDefault();cur=w;lift(w,o,h)});
   w._ov.append(h)});
@@ -336,8 +348,9 @@ async function lift(w,o,hit){
   const sx=Math.round(x*f),sy=Math.round(y*f),sw=Math.min(B.width-sx,Math.round(ww*f)),sh=Math.min(B.height-sy,Math.round(hh*f)),n=sw*sh;
   const gi=I.getContext('2d').getImageData(sx,sy,sw,sh);let cnt=0;for(let p=3;p<gi.data.length;p+=4)if(gi.data[p]>8)cnt++;
   if(cnt<20)throw 0;
-  const ga=A.getContext('2d').getImageData(sx,sy,sw,sh),gb=B.getContext('2d').getImageData(sx,sy,sw,sh),da=ga.data,db=gb.data;let m=new Uint8Array(n);
-  for(let p=0;p<n;p++){const q=p*4;if(Math.abs(da[q]-db[q])+Math.abs(da[q+1]-db[q+1])+Math.abs(da[q+2]-db[q+2])>10)m[p]=1}
+  const ga=A.getContext('2d').getImageData(sx,sy,sw,sh),gb=B.getContext('2d').getImageData(sx,sy,sw,sh),da=ga.data,db=gb.data;let m=new Uint8Array(n),dc=0;
+  for(let p=0;p<n;p++){const q=p*4;if(Math.abs(da[q]-db[q])+Math.abs(da[q+1]-db[q+1])+Math.abs(da[q+2]-db[q+2])>10){m[p]=1;dc++}}
+  if(dc<20)throw 0;
   for(let t=0;t<2;t++){const m2=m.slice();for(let p=0;p<n;p++)if(m[p]){const c=p%sw;if(c>0)m2[p-1]=1;if(c<sw-1)m2[p+1]=1;if(p>=sw)m2[p-sw]=1;if(p<n-sw)m2[p+sw]=1}m=m2}
   for(let p=0;p<n;p++)db[p*4+3]=m[p]?255:0;
   const pc=cvs(sw,sh);pc.getContext('2d').putImageData(gb,0,0);
