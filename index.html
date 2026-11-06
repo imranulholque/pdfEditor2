@@ -91,13 +91,26 @@ const sty=s=>{s=(s||'').toLowerCase();return(/bold/.test(s)?'b':'')+(/italic|obl
 window.initFonts=()=>{window.fontsReady=(async()=>{try{LF=await queryLocalFonts();[...new Set(LF.map(f=>f.family))].sort().forEach(addFont)}catch(e){}})()};
 function matchFont(fn){if(!fn||!LF.length)return null;const n=nz(fn),b=nz(fn.split(/[-,]/)[0].replace(/(MT|PS)$/,''));
  let f=LF.find(x=>nz(x.postscriptName)===n)||LF.find(x=>nz(x.fullName)===n)||LF.find(x=>nz(x.family)===b);return f?f.family:null}
+const WEB={},WEBS=new Set(),WEBP={};
+const ALIAS={arial:'Arimo',helvetica:'Arimo',timesnewroman:'Tinos',times:'Tinos',couriernew:'Cousine',courier:'Cousine',calibri:'Carlito',cambria:'Caladea'};
+const BNF={kalpurush:['kalpurush','Kalpurush'],siyamrupali:['siyam-rupali','SiyamRupali'],solaimanlipi:['solaiman-lipi','SolaimanLipi'],nikosh:['nikosh','Nikosh'],mukti:['mukti','Mukti'],adorsholipi:['adorsho-lipi','AdorshoLipi'],ekusheylohit:['ekushey-lohit','EkusheyLohit'],aponalohit:['apona-lohit','AponaLohit']};
+const tryLink=(href,css)=>new Promise(res=>{const l=document.createElement('link');l.rel='stylesheet';l.href=href;const t=setTimeout(()=>res(false),9000);
+ l.onload=async()=>{clearTimeout(t);try{res((await document.fonts.load(`400 16px "${css}"`)).length>0)}catch(e){res(false)}};
+ l.onerror=()=>{clearTimeout(t);l.remove();res(false)};document.head.append(l)});
+function webFont(nm){if(!nm||/_/.test(nm))return Promise.resolve(null);if(nm in WEBP)return WEBP[nm];
+ return WEBP[nm]=(async()=>{
+  let fam=nm.split(/[-,]/)[0].replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2').trim();const k=nz(fam),bn=BNF[k];if(ALIAS[k])fam=ALIAS[k];
+  const q=encodeURIComponent(fam).replace(/%20/g,'+'),css=bn?bn[1]:fam,G='https://fonts.googleapis.com/css?family='+q;
+  const hrefs=bn?[`https://fonts.maateen.me/${bn[0]}/font.css`]:[G+':100,200,300,400,500,600,700,800,900,400i,700i&display=swap',G+':400,700&display=swap',G+'&display=swap'];
+  for(const h of hrefs)if(await tryLink(h,css)){WEB[nm]=css;WEBS.add(css);addFont(css);return css}
+  return null})()}
 $('#addf').onclick=()=>$('#ffile').click();
 $('#ffile').onchange=async e=>{for(const f of e.target.files){const nm=f.name.replace(/\.(ttf|otf)$/i,'');
  try{const ff=new FontFace(nm,await f.arrayBuffer());await ff.load();document.fonts.add(ff);
   LF.push({family:nm,fullName:nm,postscriptName:nm,style:/bold/i.test(nm)?'Bold':'Regular',blob:async()=>f});addFont(nm)}catch(x){alert('Cannot load '+f.name)}}
  e.target.value=''};
-function showFonts(){const a=[...used].map(([n,m])=>n+(m?' ✓':' ✗')).join(' · ');
- $('#hint').textContent=a?'Fonts in this PDF: '+a+'   (✗ = not installed, nearest font used. Install it in Windows or use “Add font file”)':'Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it'}
+function showFonts(){const a=[...used].map(([n,m])=>n+(m?(WEBS.has(m)?' ⬇':' ✓'):' ✗')).join(' · ');
+ $('#hint').textContent=a?'Fonts in this PDF: '+a+'   (✓ installed · ⬇ downloaded automatically · ✗ not found, nearest font used)':'Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it'}
 const hx=(r,g,b)=>'#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
 const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
 const mk=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e};
@@ -180,22 +193,23 @@ async function renderPage(pdf,n){
  w.addEventListener('pointerdown',()=>cur=w,true);
  const tc=await pg.getTextContent(),runs=[],FI={};let rn=null;
  const finfo=id=>FI[id]||(FI[id]=(()=>{let nm='',ld='';try{const f=pg.commonObjs.get(id);nm=(f.name||'').replace(/^[A-Z]{6}\+/,'');ld=f.loadedName||''}catch(e){}
-  return{nm,ld,b:/bold|black|heavy/i.test(nm),i:/italic|oblique/i.test(nm)}})());
+  return{nm,ld,w:/black/i.test(nm)?900:/extra\s?bold|ultra\s?bold|heavy/i.test(nm)?800:/semi\s?bold|demi/i.test(nm)?600:/bold/i.test(nm)?700:/medium/i.test(nm)?500:/extra\s?light|ultra\s?light|thin|hairline/i.test(nm)?200:/light/i.test(nm)?300:400,b:/bold|black|heavy/i.test(nm),i:/italic|oblique/i.test(nm)}})());
  for(const it of tc.items){
   const t=pdfjsLib.Util.transform(vp.transform,it.transform),fs=Math.hypot(t[0],t[1])||10,x=t[4],b=t[5],wd=it.width*SC,fi=finfo(it.fontName);
-  if(!it.str.trim()){if(rn&&it.str)rn.pend=true;continue}
+  if(!it.str.trim()){if(rn&&Math.abs(b-rn.b)<rn.fs*.25&&x>rn.x-.4*rn.fs&&x-(rn.x+rn.w)<1.2*rn.fs){if(it.str)rn.pend=true;rn.w=Math.max(rn.w,x+wd-rn.x)}continue}
   const gap=rn?x-(rn.x+rn.w):0;
-  if(rn&&rn.b2===fi.b&&rn.i2===fi.i&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>-.4*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
+  if(rn&&rn.b2===fi.w&&rn.i2===fi.i&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>-.4*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
    if(rn.pend||gap>.18*rn.fs)rn.s+=' ';rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false;rn.cnt[it.fontName]=(rn.cnt[it.fontName]||0)+it.str.length}
-  else{rn={s:it.str,x,b,fs,w:wd,pend:false,b2:fi.b,i2:fi.i,cnt:{[it.fontName]:it.str.length}};runs.push(rn)}
+  else{rn={s:it.str,x,b,fs,w:wd,pend:false,b2:fi.w,i2:fi.i,cnt:{[it.fontName]:it.str.length}};runs.push(rn)}
  }
+ await Promise.all([...new Set(runs.map(r=>finfo(Object.keys(r.cnt).sort((p,q)=>r.cnt[q]-r.cnt[p])[0]).nm))].filter(n=>n&&!matchFont(n)).map(n=>webFont(n)));
  for(const r of runs){
   const fid=Object.keys(r.cnt).sort((p,q)=>r.cnt[q]-r.cnt[p])[0],fi=finfo(fid),fn=fi.nm,fs=r.fs,st=tc.styles[fid]||{},bn=/[\u0980-\u09FF]/.test(r.s);
   const fam=(fn.split(/[-,]/)[0]||'').replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
-  const m=matchFont(fn),pf=m||(bn?'Nirmala UI':fam);if(fn)used.set(fn,m);
+  const m=matchFont(fn)||WEB[fn]||null,pf=m||(bn?'Nirmala UI':fam);if(fn)used.set(fn,m);
   const x=r.x,y=r.b-fs*.94,cw=Math.max(r.w,4),ch=fs*1.2,gen=st.fontFamily||'sans-serif',emb=useEmb&&!bn?fi.ld:'';
   const stk=bn?`"${pf}","${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`;
-  const e=mkTi(ov,{x,y,fs,txt:r.s,pf,fam:(emb?`"${emb}",`:'')+stk,b:fi.b,i:fi.i});
+  const e=mkTi(ov,{x,y,fs,txt:r.s,pf,fam:(emb?`"${emb}",`:'')+stk,b:fi.b,w:fi.w,i:fi.i});
   const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg),stk,emb});
   e.style.minWidth=cw+'px';
  }
@@ -205,14 +219,14 @@ async function renderPage(pdf,n){
 function fit(ov){
  const els=[...ov.querySelectorAll('.ti')],ws=els.map(e=>{const r=document.createRange();r.selectNodeContents(e);return r.getBoundingClientRect().width});
  els.forEach((e,i)=>{const n=e.textContent.length,cw=+e.dataset.cw,d=cw-ws[i];if(!n||ws[i]<1||Math.abs(d)<=.5)return;
-  if(/[\u0980-\u09FF]/.test(e.textContent))e.style.fontSize=parseFloat(e.style.fontSize)*Math.max(.75,Math.min(1.3,cw/ws[i]))+'px';
+  if(/[\u0980-\u09FF]/.test(e.textContent)){const k=cw/ws[i];if(k<.8||k>1.25){e.dataset.un=1;e.title='This line\'s text could not be read exactly from the PDF. Typing replaces the whole line.'}else e.style.fontSize=parseFloat(e.style.fontSize)*k+'px'}
   else e.style.letterSpacing=Math.max(-3,Math.min(3,d/n))+'px'});
 }
 function mkTi(ov,o){
  const e=mk('div','ti');e.contentEditable='true';e.spellcheck=false;e.dataset.fam=o.pf||'Arial';e.textContent=o.txt;
- e.style.cssText=`left:${o.x}px;top:${o.y}px;font-size:${o.fs}px;font-family:${o.fam};font-weight:${o.b?700:400};font-style:${o.i?'italic':'normal'}`;
+ e.style.cssText=`left:${o.x}px;top:${o.y}px;font-size:${o.fs}px;font-family:${o.fam};font-weight:${o.w||(o.b?700:400)};font-style:${o.i?'italic':'normal'}`;
  ov.append(e);
- e.addEventListener('focus',()=>{select(e);e._s=snap(e)});
+ e.addEventListener('focus',()=>{select(e);e._s=snap(e);if(e.dataset.un&&!e.dataset.ed)setTimeout(()=>{const r=document.createRange();r.selectNodeContents(e);const g=getSelection();g.removeAllRanges();g.addRange(r)},0)});
  e.addEventListener('blur',()=>{const a=e._s,b=snap(e);if(a&&JSON.stringify(a)!==JSON.stringify(b))push(()=>put(e,a),()=>put(e,b))});
  e.addEventListener('pointerdown',ev=>{cur=ov.parentNode;select(e)});
  e.addEventListener('input',()=>{mark(e);if(sel===e)placeGrip()});
