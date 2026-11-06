@@ -47,10 +47,13 @@ body.cut .ov,body.text .ov{cursor:crosshair}
 .ro:active{cursor:grabbing}.ob:hover .ro,.ob.sel .ro{display:block}
 .hit{position:absolute;z-index:1;cursor:pointer}.hit:hover{outline:2px solid #2563eb;background:#2563eb18}
 body.text .hit,body.cut .hit{pointer-events:none}
+#zb{margin:0 auto}#doc{transform-origin:0 0;width:max-content}.ob.lf{z-index:1}
 </style></head><body>
 <header>
 <b>PDF Editor</b>
 <button id="open">Open PDF</button><input type="file" id="f" accept="application/pdf,.pdf" hidden>
+<span class="sep"></span>
+<button id="undo" title="Undo (Ctrl+Z)">↶</button><button id="redo" title="Redo (Ctrl+Y)">↷</button><button id="zo" title="Zoom out (Ctrl + minus / Ctrl + wheel)">−</button><button id="zl" title="Reset zoom (Ctrl+0)">100%</button><button id="zi" title="Zoom in (Ctrl + plus)">+</button><button id="reset" title="Discard all edits">Reset all</button>
 <span class="sep"></span>
 <button data-t="edit" class="on" title="Click any text to edit it">Edit text</button>
 <button data-t="text" title="Click anywhere to add new text / fill forms">Add text</button>
@@ -70,14 +73,14 @@ body.text .hit,body.cut .hit{pointer-events:none}
 <button id="save" class="pri">Save PDF</button>
 </header>
 <div id="hint">Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it · Delete: select all text and press Delete</div>
-<main id="doc"><div id="empty"><h2>Open a PDF to start</h2><p>Click “Open PDF”, drop a file here, or press Ctrl+V to paste one.<br>Works with English and বাংলা (Avro, Bijoy, any keyboard).</p></div></main>
+<div id="zb"><main id="doc"><div id="empty"><h2>Open a PDF to start</h2><p>Click “Open PDF”, drop a file here, or press Ctrl+V to paste one.<br>Works with English and বাংলা (Avro, Bijoy, any keyboard).</p></div></main></div>
 <div id="grip" title="Drag to move">✥</div>
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='node_modules/pdfjs-dist/build/pdf.worker.min.js';
 const SC=1.5,$=s=>document.querySelector(s),grip=$('#grip');
 let bytes,tool='edit',sel=null,cur=null,name='edited.pdf';
-const FONTS=['Arial','Helvetica','Times New Roman','Courier New','Georgia','Verdana','Calibri','Tahoma','Nirmala UI','Vrinda','Noto Sans Bengali','Noto Serif Bengali','Hind Siliguri','SutonnyMJ','Kalpurush','SolaimanLipi','Nikosh'];
+const FONTS=['Arial','Arial Black','Calibri','Cambria','Candara','Century Gothic','Comic Sans MS','Consolas','Courier New','Georgia','Helvetica','Impact','Palatino Linotype','Segoe UI','Tahoma','Times New Roman','Trebuchet MS','Verdana','Nirmala UI','Vrinda','Shonar Bangla','Kalpurush','SolaimanLipi','Nikosh','SutonnyMJ','Noto Sans Bengali','Noto Serif Bengali','Hind Siliguri'];
 const FS=new Set();let LF=[],used=new Map();window.fontsReady=Promise.resolve();
 function addFont(f){if(FS.has(f))return;FS.add(f);$('#fl').append(new Option(f))}
 FONTS.forEach(addFont);
@@ -100,9 +103,13 @@ const cvs=(w,h)=>{const c=mk('canvas');c.width=w;c.height=h;return c};
 const loadImg=u=>new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.src=u});
 
 function px(c,x,y){x=Math.max(0,Math.min(c.width-1,x|0));y=Math.max(0,Math.min(c.height-1,y|0));const d=c.getContext('2d').getImageData(x,y,1,1).data;return hx(d[0],d[1],d[2])}
-function ink(c,x,y,w,h){x=Math.max(0,x|0);y=Math.max(0,y|0);w=Math.max(1,Math.min(w|0,c.width-x));h=Math.max(1,Math.min(h|0,c.height-y));
- const d=c.getContext('2d').getImageData(x,y,w,h).data;let b=999,r=0,g=0,l=0;
- for(let i=0;i<d.length;i+=4){const s=d[i]+d[i+1]+d[i+2];if(s<b){b=s;r=d[i];g=d[i+1];l=d[i+2]}}return hx(r,g,l)}
+function reg(c,x,y,w,h){x=Math.max(0,x|0);y=Math.max(0,y|0);w=Math.max(1,Math.min(w|0,c.width-x));h=Math.max(1,Math.min(h|0,c.height-y));return c.getContext('2d').getImageData(x,y,w,h).data}
+function modeCol(c,x,y,w,h){const d=reg(c,x-3,y-3,w+6,h+6),m=new Map();let best=null;
+ for(let i=0;i<d.length;i+=4){const k=(d[i]>>4)<<8|(d[i+1]>>4)<<4|d[i+2]>>4,e=m.get(k)||[0,0,0,0];e[0]++;e[1]+=d[i];e[2]+=d[i+1];e[3]+=d[i+2];m.set(k,e);if(!best||e[0]>best[0])best=e}
+ return hx(best[1]/best[0],best[2]/best[0],best[3]/best[0])}
+function fg(c,x,y,w,h,bg){const d=reg(c,x,y,w,h),[R,G,B]=rgb(bg);let b=-1,r=0,g=0,l=0;
+ for(let i=0;i<d.length;i+=4){const s=Math.abs(d[i]-R)+Math.abs(d[i+1]-G)+Math.abs(d[i+2]-B);if(s>b){b=s;r=d[i];g=d[i+1];l=d[i+2]}}
+ return b<40?'#000000':hx(r,g,l)}
 
 /* ---------- open & render ---------- */
 $('#open').onclick=()=>$('#f').click();
@@ -110,14 +117,54 @@ $('#f').onchange=e=>e.target.files[0]&&openFile(e.target.files[0]);
 addEventListener('dragover',e=>e.preventDefault());
 function handleFiles(fl){for(const f of fl){if(/pdf/i.test(f.type+f.name))return openFile(f);if(/^image/.test(f.type)&&bytes)return addImage(f)}}
 addEventListener('drop',e=>{e.preventDefault();handleFiles(e.dataTransfer.files)});
-addEventListener('paste',e=>{const fl=e.clipboardData&&e.clipboardData.files;if(fl&&fl.length){e.preventDefault();handleFiles(fl)}});
-addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='o'){e.preventDefault();$('#open').click()}if(e.ctrlKey&&e.key==='s'){e.preventDefault();$('#save').click()}});
+const UND=[],RED=[];let Z=1,clip=null;
+function push(u,r){UND.push({u,r});RED.length=0}
+function undo(){const a=UND.pop();if(a){a.u();RED.push(a);select(null)}}
+function redo(){const a=RED.pop();if(a){a.r();UND.push(a);select(null)}}
+function snap(e){return{css:e.style.cssText,ds:{...e.dataset},t:e.classList.contains('ti')?e.textContent:null}}
+function put(e,s){e.style.cssText=s.css;for(const k in e.dataset)delete e.dataset[k];Object.assign(e.dataset,s.ds);
+ if(s.t!==null&&e.textContent!==s.t)e.textContent=s.t;const i=e.querySelector('img');if(i&&i.src!==e.dataset.cur)i.src=e.dataset.cur}
+function track(e,fn){const a=snap(e);fn();const b=snap(e);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(e,a),()=>put(e,b))}
+function setZoom(z){Z=Math.min(4,Math.max(.25,z));const d=$('#doc'),b=$('#zb');d.style.transform=`scale(${Z})`;
+ b.style.width=d.scrollWidth*Z+'px';b.style.height=d.scrollHeight*Z+'px';$('#zl').textContent=Math.round(Z*100)+'%'}
+const editing=()=>{const a=document.activeElement;return a&&(a.isContentEditable||/INPUT|SELECT|TEXTAREA/.test(a.tagName))};
+function copySel(){const e=sel;if(!e)return;
+ if(e.classList.contains('ob')){clip={k:'ob',url:e.dataset.cur,w:e.offsetWidth,h:e.offsetHeight,x:e.offsetLeft,y:e.offsetTop};
+  fetch(clip.url).then(r=>r.blob()).then(b=>navigator.clipboard.write([new ClipboardItem({'image/png':b})])).catch(()=>{})}
+ else if(e.classList.contains('ti'))clip={k:'ti',txt:e.textContent,css:e.style.cssText,ds:{...e.dataset},x:e.offsetLeft,y:e.offsetTop}}
+function pasteClip(){const w=cur||document.querySelector('.pg');if(!clip||!w)return;
+ if(clip.k==='ob'){const o=mkOb(w._ov,clip.url,clip.x+20,clip.y+20,clip.w,clip.h);push(()=>o.remove(),()=>w._ov.append(o))}
+ else{const t=mkTi(w._ov,{x:0,y:0,fs:12,fam:'Arial',txt:clip.txt});t.style.cssText=clip.css;t.style.left=clip.x+15+'px';t.style.top=clip.y+15+'px';
+  Object.assign(t.dataset,clip.ds);['ox','oy','cw','ch'].forEach(k=>delete t.dataset[k]);t.style.minWidth='';t.classList.add('nw');t.dataset.ed=1;mark(t);select(t);
+  push(()=>t.remove(),()=>w._ov.append(t))}}
+addEventListener('paste',e=>{const fl=e.clipboardData&&e.clipboardData.files;
+ if(fl&&fl.length){e.preventDefault();handleFiles(fl)}else if(!editing()&&clip){e.preventDefault();pasteClip()}});
+addEventListener('wheel',e=>{if(e.ctrlKey){e.preventDefault();setZoom(Z*(e.deltaY<0?1.1:1/1.1))}else if(e.shiftKey){e.preventDefault();scrollBy(e.deltaY||e.deltaX,0)}},{passive:false});
+addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey;
+ if(c&&k==='o'){e.preventDefault();$('#open').click()}
+ else if(c&&k==='s'){e.preventDefault();$('#save').click()}
+ else if(c&&(k==='='||k==='+')){e.preventDefault();setZoom(Z*1.15)}
+ else if(c&&k==='-'){e.preventDefault();setZoom(Z/1.15)}
+ else if(c&&k==='0'){e.preventDefault();setZoom(1)}
+ else if(editing()){}
+ else if(c&&k==='z'){e.preventDefault();e.shiftKey?redo():undo()}
+ else if(c&&k==='y'){e.preventDefault();redo()}
+ else if(c&&k==='c')copySel();
+ else if(c&&k==='x'){copySel();delSel()}
+ else if(c&&k==='d'){e.preventDefault();copySel();pasteClip()}
+ else if(k==='delete'||(k==='backspace'&&sel&&sel.classList.contains('ob'))){if(sel){e.preventDefault();delSel()}}
+ else if(k==='escape')select(null);
+ else if(sel&&k.startsWith('arrow')){e.preventDefault();const s=e.shiftKey?10:1;track(sel,()=>{
+  if(k==='arrowleft')sel.style.left=sel.offsetLeft-s+'px';if(k==='arrowright')sel.style.left=sel.offsetLeft+s+'px';
+  if(k==='arrowup')sel.style.top=sel.offsetTop-s+'px';if(k==='arrowdown')sel.style.top=sel.offsetTop+s+'px';
+  if(isTi())mark(sel);placeGrip()})}
+});
 async function openFile(f){name=f.name.replace(/\.pdf$/i,'')+'-edited.pdf';loadBytes(new Uint8Array(await f.arrayBuffer()))}
 async function loadBytes(b){
- bytes=b;await window.fontsReady;used=new Map();
+ bytes=b;await window.fontsReady;used=new Map();UND.length=RED.length=0;clip=null;Z=1;$('#doc').style.transform='';
  $('#doc').innerHTML='<p>Loading…</p>';select(null);
  try{const pdf=await pdfjsLib.getDocument({data:bytes.slice()}).promise;$('#doc').innerHTML='';
-  for(let n=1;n<=pdf.numPages;n++)await renderPage(pdf,n);showFonts();
+  for(let n=1;n<=pdf.numPages;n++)await renderPage(pdf,n);showFonts();setZoom(1);
  }catch(err){$('#doc').innerHTML='<p>Could not open this PDF: '+err.message+'</p>'}
 }
 async function renderPage(pdf,n){
@@ -140,7 +187,7 @@ async function renderPage(pdf,n){
   const e=mkTi(ov,{x,y,fs,txt:it.str,
    pf,fam:`"${pf}","${fam}","${fn}",${st.fontFamily||'sans-serif'},"Noto Sans Bengali","Nirmala UI"`,
    b:/bold|black|heavy/i.test(fn),i:/italic|oblique/i.test(fn)});
-  Object.assign(e.dataset,{ox:x,oy:y,cw,ch,col:ink(c,x,y,cw,ch),bg:px(c,x>4?x-3:x+cw+3,y+ch/2)});
+  const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg)});
   e.style.minWidth=cw+'px';
  }
  fit(ov);
@@ -154,7 +201,8 @@ function mkTi(ov,o){
  const e=mk('div','ti');e.contentEditable='true';e.spellcheck=false;e.dataset.fam=o.pf||'Arial';e.textContent=o.txt;
  e.style.cssText=`left:${o.x}px;top:${o.y}px;font-size:${o.fs}px;font-family:${o.fam};font-weight:${o.b?700:400};font-style:${o.i?'italic':'normal'}`;
  ov.append(e);
- e.addEventListener('focus',()=>select(e));
+ e.addEventListener('focus',()=>{select(e);e._s=snap(e)});
+ e.addEventListener('blur',()=>{const a=e._s,b=snap(e);if(a&&JSON.stringify(a)!==JSON.stringify(b))push(()=>put(e,a),()=>put(e,b))});
  e.addEventListener('pointerdown',ev=>{cur=ov.parentNode;select(e)});
  e.addEventListener('input',()=>mark(e));
  e.addEventListener('paste',ev=>{ev.preventDefault();document.execCommand('insertText',false,ev.clipboardData.getData('text/plain'))});
@@ -178,22 +226,24 @@ function select(el){
 }
 function placeGrip(){if(sel&&sel.classList.contains('ti')){grip.style.display='block';grip.style.left=sel.offsetLeft-18+'px';grip.style.top=sel.offsetTop+'px'}}
 grip.onpointerdown=e=>{if(sel){mark(sel);drag(e,sel,placeGrip)}};
-function drag(e,el,fn){e.preventDefault();const sx=e.clientX,sy=e.clientY,l=el.offsetLeft,t=el.offsetTop;
- const mv=v=>{el.style.left=l+v.clientX-sx+'px';el.style.top=t+v.clientY-sy+'px';fn&&fn()};
- const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up)};
+function drag(e,el,fn){e.preventDefault();const a=snap(el),sx=e.clientX,sy=e.clientY,l=el.offsetLeft,t=el.offsetTop;
+ const mv=v=>{el.style.left=l+(v.clientX-sx)/Z+'px';el.style.top=t+(v.clientY-sy)/Z+'px';fn&&fn()};
+ const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);const b=snap(el);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(el,a),()=>put(el,b))};
  addEventListener('pointermove',mv);addEventListener('pointerup',up)}
 const isTi=()=>sel&&sel.classList.contains('ti');
-$('#ff').onchange=e=>{if(isTi()){sel.style.letterSpacing='';sel.dataset.fam=e.target.value;sel.style.fontFamily=`"${e.target.value}",sans-serif,"Noto Sans Bengali","Nirmala UI"`;mark(sel)}};
-$('#fz').oninput=e=>{if(isTi()&&+e.target.value>0){sel.style.letterSpacing='';sel.style.fontSize=e.target.value*SC+'px';mark(sel)}};
-$('#b').onclick=()=>{if(isTi()){sel.style.fontWeight=sel.style.fontWeight==='700'?'400':'700';mark(sel)}};
-$('#i').onclick=()=>{if(isTi()){sel.style.fontStyle=sel.style.fontStyle==='italic'?'normal':'italic';mark(sel)}};
-$('#col').oninput=e=>{if(isTi()){sel.dataset.col=e.target.value;mark(sel)}};
+$('#ff').onfocus=e=>{e.target.dataset.o=e.target.value;e.target.value=''};
+$('#ff').onblur=e=>{if(!e.target.value)e.target.value=e.target.dataset.o||''};
+$('#ff').onchange=e=>{if(isTi()&&e.target.value)track(sel,()=>{sel.style.letterSpacing='';sel.dataset.fam=e.target.value;sel.style.fontFamily=`"${e.target.value}",sans-serif,"Noto Sans Bengali","Nirmala UI"`;mark(sel)})};
+$('#fz').oninput=e=>{if(isTi()&&+e.target.value>0)track(sel,()=>{sel.style.letterSpacing='';sel.style.fontSize=e.target.value*SC+'px';mark(sel)})};
+$('#b').onclick=()=>{if(isTi())track(sel,()=>{sel.style.fontWeight=sel.style.fontWeight==='700'?'400':'700';mark(sel)})};
+$('#i').onclick=()=>{if(isTi())track(sel,()=>{sel.style.fontStyle=sel.style.fontStyle==='italic'?'normal':'italic';mark(sel)})};
+$('#col').oninput=e=>{if(isTi())track(sel,()=>{sel.dataset.col=e.target.value;mark(sel)})};
 $('#del').onclick=delSel;
-function delSel(){if(!sel)return;
- if(sel.classList.contains('ob')){sel.remove();select(null)}
- else if(sel.classList.contains('nw'))sel.remove(),select(null);
- else{sel.textContent='';mark(sel)}}
-addEventListener('keydown',e=>{if(e.key==='Delete'&&sel&&sel.classList.contains('ob'))delSel()});
+function delSel(){const e=sel;if(!e)return;
+ if(e.classList.contains('ob')||e.classList.contains('nw')){const p=e.parentNode,nx=e.nextSibling;e.remove();select(null);push(()=>p.insertBefore(e,nx),()=>e.remove())}
+ else track(e,()=>{e.textContent='';mark(e)})}
+$('#undo').onclick=undo;$('#redo').onclick=redo;$('#zi').onclick=()=>setZoom(Z*1.15);$('#zo').onclick=()=>setZoom(Z/1.15);$('#zl').onclick=()=>setZoom(1);
+$('#reset').onclick=()=>{if(bytes&&confirm('Discard ALL edits and reload the original PDF?'))loadBytes(bytes)};
 document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{
  tool=b.dataset.t;document.querySelectorAll('[data-t]').forEach(x=>x.classList.toggle('on',x===b));
  document.body.className=tool==='edit'?'':tool});
@@ -204,14 +254,14 @@ document.addEventListener('pointerdown',e=>{
  if(!ov){if(!e.target.closest('header')&&!e.target.closest('#grip'))select(null);return}
  if(e.target!==ov)return;
  const w=ov.parentNode;cur=w;select(null);
- const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+ const r=ov.getBoundingClientRect(),x=(e.clientX-r.left)/Z,y=(e.clientY-r.top)/Z;
  if(tool==='text'){
   e.preventDefault();
   const t=mkTi(ov,{x,y:y-9,fs:12*SC,fam:'"Arial",sans-serif',txt:''});
-  t.classList.add('nw');t.dataset.col='#000000';t.style.color='#000';t.style.minWidth='30px';t.dataset.ed=1;t.focus();
+  t.classList.add('nw');t.dataset.col='#000000';t.style.color='#000';t.style.minWidth='30px';t.dataset.ed=1;t.focus();push(()=>t.remove(),()=>ov.append(t));
  }else if(tool==='cut'){
   e.preventDefault();const rb=mk('div','rb');ov.append(rb);let X=x,Y=y,W=0,H=0;
-  const mv=v=>{const a=v.clientX-r.left,b=v.clientY-r.top;X=Math.min(x,a);Y=Math.min(y,b);W=Math.abs(a-x);H=Math.abs(b-y);
+  const mv=v=>{const a=(v.clientX-r.left)/Z,b=(v.clientY-r.top)/Z;X=Math.min(x,a);Y=Math.min(y,b);W=Math.abs(a-x);H=Math.abs(b-y);
    Object.assign(rb.style,{left:X+'px',top:Y+'px',width:W+'px',height:H+'px'})};
   const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);rb.remove();
    if(W>6&&H>6)cutRegion(w,X,Y,W,H)};
@@ -223,37 +273,41 @@ function cutRegion(w,x,y,ww,hh){
  const bg=px(c,x>4?x-3:x+ww+3,y+hh/2),cv=mk('div','cv');
  cv.style.cssText=`left:${x}px;top:${y}px;width:${ww}px;height:${hh}px;background:${bg}`;
  Object.assign(cv.dataset,{ox:x,oy:y,cw:ww,ch:hh,bg});w._ov.append(cv);
- mkOb(w._ov,t.toDataURL(),x,y,ww,hh);
+ const ob=mkOb(w._ov,t.toDataURL(),x,y,ww,hh);push(()=>{ob.remove();cv.remove()},()=>w._ov.append(cv,ob));
  document.querySelector('[data-t=edit]').click();
 }
 
 /* ---------- click any existing picture / shape ---------- */
+const inter=(a,b)=>{const r={x0:Math.max(a.x0,b.x0),y0:Math.max(a.y0,b.y0),x1:Math.min(a.x1,b.x1),y1:Math.min(a.y1,b.y1)};return r.x1>r.x0&&r.y1>r.y0?r:null};
 async function scanObjects(w){
  const pg=w._pg,vp=w._vp,O=pdfjsLib.OPS,ol=await pg.getOperatorList(),F=ol.fnArray,A=ol.argsArray,mul=pdfjsLib.Util.transform;
- w._ol=ol;
+ w._ol=ol;w._F0=F.slice();w._dead=new Map();
  const fills=[O.fill,O.eoFill,O.fillStroke,O.eoFillStroke,O.closeFillStroke,O.closeEOFillStroke];
  const imgs=[O.paintImageXObject,O.paintInlineImageXObject,O.paintJpegXObject,O.paintImageMaskXObject,O.paintSolidColorImageMask];
- const ends=[O.stroke,O.closeStroke,O.endPath,O.clip,O.eoClip];
- let m=[1,0,0,1,0,0],pb=null;const st=[],objs=[];
+ w._fl=new Set([...fills,O.stroke,O.closeStroke].filter(Boolean));
+ w._pt=new Set([...imgs,O.showText,O.showSpacedText,O.nextLineShowText,O.nextLineSetSpacingShowText,O.shadingFill,O.paintImageXObjectRepeat,O.paintImageMaskXObjectGroup,O.paintImageMaskXObjectRepeat].filter(Boolean));
+ let m=[1,0,0,1,0,0],c=null,pb=null;const st=[],objs=[];
  const bb=(M,ps,b)=>{const T=mul(vp.transform,M);for(const p of ps){const X=T[0]*p[0]+T[2]*p[1]+T[4],Y=T[1]*p[0]+T[3]*p[1]+T[5];
   b=b?{x0:Math.min(b.x0,X),y0:Math.min(b.y0,Y),x1:Math.max(b.x1,X),y1:Math.max(b.y1,Y)}:{x0:X,y0:Y,x1:X,y1:Y}}return b};
+ const add=(k,i,b)=>{if(b&&c)b=inter(b,c);if(b)objs.push({k,i,b})};
  for(let i=0;i<F.length;i++){const f=F[i],a=A[i];
-  if(f===O.save)st.push(m);
-  else if(f===O.restore)m=st.pop()||m;
+  if(f===O.save)st.push([m,c]);
+  else if(f===O.restore){const s=st.pop();if(s){m=s[0];c=s[1]}}
   else if(f===O.transform)m=mul(m,a);
-  else if(f===O.paintFormXObjectBegin){st.push(m);if(a[0])m=mul(m,a[0])}
-  else if(f===O.beginGroup){st.push(m);if(a[0]&&a[0].matrix)m=mul(m,a[0].matrix)}
-  else if(f===O.paintFormXObjectEnd||f===O.endGroup)m=st.pop()||m;
-  else if(f===O.constructPath){const c=a[1],pp=[];let j=0;
+  else if(f===O.paintFormXObjectBegin){st.push([m,c]);if(a[0])m=mul(m,a[0])}
+  else if(f===O.beginGroup){st.push([m,c]);if(a[0]&&a[0].matrix)m=mul(m,a[0].matrix)}
+  else if(f===O.paintFormXObjectEnd||f===O.endGroup){const s=st.pop();if(s){m=s[0];c=s[1]}}
+  else if(f===O.constructPath){const q=a[1],pp=[];let j=0;
    for(const o of a[0]){
-    if(o===O.moveTo||o===O.lineTo){pp.push([c[j],c[j+1]]);j+=2}
-    else if(o===O.curveTo){pp.push([c[j],c[j+1]],[c[j+2],c[j+3]],[c[j+4],c[j+5]]);j+=6}
-    else if(o===O.curveTo2||o===O.curveTo3){pp.push([c[j],c[j+1]],[c[j+2],c[j+3]]);j+=4}
-    else if(o===O.rectangle){pp.push([c[j],c[j+1]],[c[j]+c[j+2],c[j+1]+c[j+3]]);j+=4}}
+    if(o===O.moveTo||o===O.lineTo){pp.push([q[j],q[j+1]]);j+=2}
+    else if(o===O.curveTo){pp.push([q[j],q[j+1]],[q[j+2],q[j+3]],[q[j+4],q[j+5]]);j+=6}
+    else if(o===O.curveTo2||o===O.curveTo3){pp.push([q[j],q[j+1]],[q[j+2],q[j+3]]);j+=4}
+    else if(o===O.rectangle){pp.push([q[j],q[j+1]],[q[j]+q[j+2],q[j+1]+q[j+3]]);j+=4}}
    if(pp.length)pb=bb(m,pp,pb)}
-  else if(fills.includes(f)){if(pb)objs.push({k:'p',i,b:pb});pb=null}
-  else if(ends.includes(f))pb=null;
-  else if(imgs.includes(f))objs.push({k:'i',i,b:bb(m,[[0,0],[1,0],[0,1],[1,1]],null)});
+  else if(f===O.clip||f===O.eoClip){if(pb)c=c?(inter(c,pb)||{x0:0,y0:0,x1:0,y1:0}):pb}
+  else if(fills.includes(f)){add('p',i,pb);pb=null}
+  else if(f===O.stroke||f===O.closeStroke||f===O.endPath)pb=null;
+  else if(imgs.includes(f))add('i',i,bb(m,[[0,0],[1,0],[0,1],[1,1]],null));
  }
  const W=vp.width,H=vp.height;
  objs.filter(o=>{const bw=o.b.x1-o.b.x0,bh=o.b.y1-o.b.y0;return isFinite(bw+bh)&&bw>=8&&bh>=8&&!(bw>W*.95&&bh>H*.95)}).slice(-500).forEach(o=>{
@@ -262,34 +316,40 @@ async function scanObjects(w){
   h.addEventListener('pointerdown',e=>{if(tool!=='edit')return;e.preventDefault();cur=w;lift(w,o,h)});
   w._ov.append(h)});
 }
+function setOps(w,iso){const F=w._ol.fnArray,F0=w._F0,O=pdfjsLib.OPS;
+ for(let i=0;i<F0.length;i++){let f=F0[i];
+  if(iso!==undefined){if(i!==iso){if(w._fl.has(f))f=O.endPath;else if(w._pt.has(f))f=O.setFlatness}}
+  else if(w._dead.has(i))f=w._dead.get(i)==='i'?O.setFlatness:O.endPath;
+  F[i]=f}}
 let busy=false;
-const rend=async(pg,vp)=>{const c=cvs(vp.width,vp.height);await pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp}).promise;return c};
+const rend=async(pg,vp,tr)=>{const c=cvs(vp.width,vp.height);await pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp,background:tr?'rgba(0,0,0,0)':undefined}).promise;return c};
 async function lift(w,o,hit){
  if(busy)return;busy=true;document.body.style.cursor='progress';
- const F=w._ol.fnArray,O=pdfjsLib.OPS,old=F[o.i];
  try{
-  const pg=w._pg,HS=Math.min(3,3800/(w._vp.width/SC),3800/(w._vp.height/SC)),f=HS/SC,vp3=pg.getViewport({scale:HS});
-  if(!w._cur3)w._cur3=await rend(pg,vp3);
-  F[o.i]=o.k==='i'?O.setFlatness:O.endPath;
-  const B=await rend(pg,vp3);
+  const pg=w._pg,vp=w._vp,HS=Math.min(3,3800/(vp.width/SC),3800/(vp.height/SC)),f=HS/SC,v3=pg.getViewport({scale:HS});
+  setOps(w);if(!w._cur3)w._cur3=await rend(pg,v3);
+  const A=w._cur3,d0=cvs(w._c.width,w._c.height);d0.getContext('2d').drawImage(w._c,0,0);
+  w._dead.set(o.i,o.k);setOps(w);const B=await rend(pg,v3);
+  setOps(w,o.i);const I=await rend(pg,v3,1);setOps(w);
+  const D=await rend(pg,vp);
   const x=Math.max(0,Math.floor(o.b.x0)),y=Math.max(0,Math.floor(o.b.y0)),ww=Math.min(w._c.width,Math.ceil(o.b.x1))-x,hh=Math.min(w._c.height,Math.ceil(o.b.y1))-y;
-  const sx=Math.round(x*f),sy=Math.round(y*f),sw=Math.min(B.width-sx,Math.round(ww*f)),sh=Math.min(B.height-sy,Math.round(hh*f));
-  const ga=w._cur3.getContext('2d').getImageData(sx,sy,sw,sh),gb=B.getContext('2d').getImageData(sx,sy,sw,sh),da=ga.data,db=gb.data,n=sw*sh,mask=new Uint8Array(n);let cnt=0;
-  for(let p=0;p<n;p++){const q=p*4;if(Math.abs(da[q]-db[q])+Math.abs(da[q+1]-db[q+1])+Math.abs(da[q+2]-db[q+2])>10){mask[p]=1;cnt++}}
-  if(cnt<30)throw 0;
-  const out=new Uint8Array(n),stk=[],ps=p=>{if(!mask[p]&&!out[p]){out[p]=1;stk.push(p)}};
-  for(let i=0;i<sw;i++){ps(i);ps((sh-1)*sw+i)}for(let j=0;j<sh;j++){ps(j*sw);ps(j*sw+sw-1)}
-  while(stk.length){const p=stk.pop(),c=p%sw;if(c>0)ps(p-1);if(c<sw-1)ps(p+1);if(p>=sw)ps(p-sw);if(p<n-sw)ps(p+sw)}
-  for(let p=0;p<n;p++)da[p*4+3]=(mask[p]||!out[p])?255:0;
-  const oc=cvs(sw,sh);oc.getContext('2d').putImageData(ga,0,0);
-  const pc=cvs(sw,sh);pc.getContext('2d').drawImage(B,sx,sy,sw,sh,0,0,sw,sh);
-  w._lifts.push({x,y,ww,hh,url:pc.toDataURL()});
-  w._cur3=B;
-  const g=w._c.getContext('2d');g.imageSmoothingQuality='high';g.drawImage(B,0,0,w._c.width,w._c.height);
-  hit.remove();
-  mkOb(w._ov,oc.toDataURL(),x,y,ww,hh);
+  const sx=Math.round(x*f),sy=Math.round(y*f),sw=Math.min(B.width-sx,Math.round(ww*f)),sh=Math.min(B.height-sy,Math.round(hh*f)),n=sw*sh;
+  const gi=I.getContext('2d').getImageData(sx,sy,sw,sh);let cnt=0;for(let p=3;p<gi.data.length;p+=4)if(gi.data[p]>8)cnt++;
+  if(cnt<20)throw 0;
+  const ga=A.getContext('2d').getImageData(sx,sy,sw,sh),gb=B.getContext('2d').getImageData(sx,sy,sw,sh),da=ga.data,db=gb.data;let m=new Uint8Array(n);
+  for(let p=0;p<n;p++){const q=p*4;if(Math.abs(da[q]-db[q])+Math.abs(da[q+1]-db[q+1])+Math.abs(da[q+2]-db[q+2])>10)m[p]=1}
+  for(let t=0;t<2;t++){const m2=m.slice();for(let p=0;p<n;p++)if(m[p]){const c=p%sw;if(c>0)m2[p-1]=1;if(c<sw-1)m2[p+1]=1;if(p>=sw)m2[p-sw]=1;if(p<n-sw)m2[p+sw]=1}m=m2}
+  for(let p=0;p<n;p++)db[p*4+3]=m[p]?255:0;
+  const pc=cvs(sw,sh);pc.getContext('2d').putImageData(gb,0,0);
+  const oc=cvs(sw,sh);oc.getContext('2d').putImageData(gi,0,0);
+  const L={x,y,ww,hh,url:pc.toDataURL()},prev=w._cur3;w._lifts.push(L);w._cur3=B;
+  w._c.getContext('2d').drawImage(D,0,0);
+  const d1=cvs(D.width,D.height);d1.getContext('2d').drawImage(D,0,0);
+  hit.remove();const ob=mkOb(w._ov,oc.toDataURL(),x,y,ww,hh,'lf');
+  push(()=>{ob.remove();w._lifts.splice(w._lifts.indexOf(L),1);w._dead.delete(o.i);setOps(w);w._cur3=prev;w._c.getContext('2d').drawImage(d0,0,0);w._ov.append(hit)},
+   ()=>{w._ov.append(ob);w._lifts.push(L);w._dead.set(o.i,o.k);setOps(w);w._cur3=B;w._c.getContext('2d').drawImage(d1,0,0);hit.remove()});
  }catch(err){
-  F[o.i]=old;hit.remove();const b=o.b;
+  w._dead.delete(o.i);try{setOps(w)}catch(x){}hit.remove();const b=o.b;
   cutRegion(w,Math.max(0,b.x0),Math.max(0,b.y0),b.x1-b.x0,b.y1-b.y0);
  }
  busy=false;document.body.style.cursor='';
@@ -303,28 +363,24 @@ async function addImage(f){
  const i=await loadImg(u),k=Math.min(1,1600/Math.max(i.width,i.height)),c=cvs(i.width*k,i.height*k);
  c.getContext('2d').drawImage(i,0,0,c.width,c.height);
  const w=cur||document.querySelector('.pg');if(!w)return alert('Open a PDF first');
- const dw=Math.min(220,c.width);mkOb(w._ov,c.toDataURL(),60,60,dw,dw*c.height/c.width);
+ const dw=Math.min(220,c.width),ob=mkOb(w._ov,c.toDataURL(),60,60,dw,dw*c.height/c.width);push(()=>ob.remove(),()=>w._ov.append(ob));
 };
-async function mkOb(ov,url,x,y,w,h){
- const o=mk('div','ob'),im=new Image(),rs=mk('i','rs'),ro=mk('i','ro');ro.textContent='↻';ro.title='Drag to rotate (hold Shift = snap 15°)';
+function mkOb(ov,url,x,y,w,h,cls){
+ const o=mk('div','ob'+(cls?' '+cls:'')),im=new Image(),rs=mk('i','rs'),ro=mk('i','ro');ro.textContent='↻';ro.title='Drag to rotate (hold Shift = snap 15°)';
  o.dataset.orig=o.dataset.cur=url;im.src=url;im.draggable=false;o.append(im,rs,ro);
  o.style.cssText=`left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+ const run=mv=>{const a=snap(o),up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);const b=snap(o);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(o,a),()=>put(o,b))};
+  addEventListener('pointermove',mv);addEventListener('pointerup',up)};
  o.addEventListener('pointerdown',e=>{cur=ov.parentNode;select(o);
   if(e.target===ro){e.preventDefault();e.stopPropagation();const b=o.getBoundingClientRect(),cx=b.left+b.width/2,cy=b.top+b.height/2;
-   const mvr=v=>{let a=Math.atan2(v.clientY-cy,v.clientX-cx)*180/Math.PI+90;if(v.shiftKey)a=Math.round(a/15)*15;o.dataset.rot=a;o.style.transform=`rotate(${a}deg)`};
-   const upr=()=>{removeEventListener('pointermove',mvr);removeEventListener('pointerup',upr)};
-   addEventListener('pointermove',mvr);addEventListener('pointerup',upr);return}
+   return run(v=>{let a=Math.atan2(v.clientY-cy,v.clientX-cx)*180/Math.PI+90;if(v.shiftKey)a=Math.round(a/15)*15;o.dataset.rot=a;o.style.transform=`rotate(${a}deg)`})}
   if(e.target!==rs)return drag(e,o);
   e.preventDefault();e.stopPropagation();const sx=e.clientX,sy=e.clientY,w0=o.offsetWidth,h0=o.offsetHeight,t=(+o.dataset.rot||0)*Math.PI/180;
-  const mv=v=>{const nw=Math.max(16,w0+(v.clientX-sx)*Math.cos(t)+(v.clientY-sy)*Math.sin(t));o.style.width=nw+'px';o.style.height=nw*h0/w0+'px'};
-  const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up)};
-  addEventListener('pointermove',mv);addEventListener('pointerup',up)});
- ov.append(o);select(o);
- const i=await loadImg(url),c=cvs(i.width,i.height),g=c.getContext('2d');g.drawImage(i,0,0);
+  run(v=>{const nw=Math.max(16,w0+((v.clientX-sx)*Math.cos(t)+(v.clientY-sy)*Math.sin(t))/Z);o.style.width=nw+'px';o.style.height=nw*h0/w0+'px'})});
+ ov.append(o);select(o);calcBg(o,url);return o}
+async function calcBg(o,url){const i=await loadImg(url),c=cvs(i.width,i.height),g=c.getContext('2d');g.drawImage(i,0,0);
  const p=[[0,0],[i.width-1,0],[0,i.height-1],[i.width-1,i.height-1]].map(q=>g.getImageData(q[0],q[1],1,1).data);
- o.dataset.bg=hx(...[0,1,2].map(k=>p.reduce((s,d)=>s+d[k],0)/4));
- if(sel===o)$('#bgc').value=o.dataset.bg;
-}
+ o.dataset.bg=hx(...[0,1,2].map(k=>p.reduce((s,d)=>s+d[k],0)/4));if(sel===o)$('#bgc').value=o.dataset.bg}
 $('#rm').onclick=async()=>{
  if(!sel||!sel.classList.contains('ob'))return;
  const [R,G,B]=rgb($('#bgc').value),tol=+$('#tol').value;
@@ -332,9 +388,9 @@ $('#rm').onclick=async()=>{
  const d=g.getImageData(0,0,c.width,c.height),p=d.data;
  for(let k=0;k<p.length;k+=4){const dist=Math.hypot(p[k]-R,p[k+1]-G,p[k+2]-B);
   const a=dist<=tol?0:dist>=tol*1.5?255:(dist-tol)/(tol*.5)*255;p[k+3]=Math.min(p[k+3],a)}
- g.putImageData(d,0,0);sel.dataset.cur=c.toDataURL();sel.querySelector('img').src=sel.dataset.cur;
+ const o=sel,a=snap(o);g.putImageData(d,0,0);o.dataset.cur=c.toDataURL();o.querySelector('img').src=o.dataset.cur;const b=snap(o);push(()=>put(o,a),()=>put(o,b));
 };
-$('#rs').onclick=()=>{if(sel&&sel.classList.contains('ob')){sel.dataset.cur=sel.dataset.orig;sel.querySelector('img').src=sel.dataset.orig}};
+$('#rs').onclick=()=>{if(sel&&sel.classList.contains('ob'))track(sel,()=>{sel.dataset.cur=sel.dataset.orig;sel.querySelector('img').src=sel.dataset.orig})};
 
 /* ---------- save ---------- */
 async function textPng(e){
@@ -362,6 +418,9 @@ async function drawReal(doc,pg,H,k,e,fm){
   L.forEach((s,i)=>s&&pg.drawText(s,{x:e.offsetLeft*k,y:H-(e.offsetTop+(i*1.2+.94)*fs)*k,size:fs*k,font:f,color:PDFLib.rgb(r/255,g/255,b/255)}));
   return true}catch(x){return false}}
 const buf=async u=>(await fetch(u)).arrayBuffer();
+async function drawOb(doc,pg,H,k,e){const im=await doc.embedPng(await buf(e.dataset.cur));
+ const ph=-(+e.dataset.rot||0)*Math.PI/180,w=e.offsetWidth*k,h=e.offsetHeight*k,cx=(e.offsetLeft+e.offsetWidth/2)*k,cy=H-(e.offsetTop+e.offsetHeight/2)*k,x0=-w/2,y0=-h/2;
+ pg.drawImage(im,{x:cx+x0*Math.cos(ph)-y0*Math.sin(ph),y:cy+x0*Math.sin(ph)+y0*Math.cos(ph),width:w,height:h,rotate:PDFLib.degrees(ph*180/Math.PI)})}
 $('#save').onclick=async()=>{
  if(!bytes)return alert('Open a PDF first');
  const btn=$('#save');btn.textContent='Saving…';
@@ -371,22 +430,19 @@ $('#save').onclick=async()=>{
    const pg=P[w._n-1],H=pg.getHeight();
    for(const L of w._lifts||[]){const im=await doc.embedPng(await buf(L.url));
     pg.drawImage(im,{x:L.x*k,y:H-(L.y+L.hh)*k,width:L.ww*k,height:L.hh*k})}
-   for(const e of w._ov.children){
-    const d=e.dataset;
+   const ch=[...w._ov.children];
+   for(const e of ch){const d=e.dataset;
     if(e.classList.contains('cv')||(e.classList.contains('ti')&&d.ed&&d.cw)){
      const [r,g,b]=rgb(d.bg);
      pg.drawRectangle({x:(+d.ox-1)*k,y:H-(+d.oy+ +d.ch+1)*k,width:(+d.cw+2)*k,height:(+d.ch+2)*k,color:PDFLib.rgb(r/255,g/255,b/255),borderWidth:0});
     }
    }
-   for(const e of w._ov.children){
+   for(const e of ch)if(e.classList.contains('lf'))await drawOb(doc,pg,H,k,e);
+   for(const e of ch){
     if(e.classList.contains('ti')&&e.dataset.ed&&e.innerText.trim()){
      if(!await drawReal(doc,pg,H,k,e,fm)){const t=await textPng(e),im=await doc.embedPng(await buf(t.url));
      pg.drawImage(im,{x:e.offsetLeft*k,y:H-(e.offsetTop+t.h)*k,width:t.w*k,height:t.h*k});}
-    }else if(e.classList.contains('ob')){
-     const im=await doc.embedPng(await buf(e.dataset.cur));
-     const ph=-(+e.dataset.rot||0)*Math.PI/180,w=e.offsetWidth*k,h=e.offsetHeight*k,cx=(e.offsetLeft+e.offsetWidth/2)*k,cy=H-(e.offsetTop+e.offsetHeight/2)*k,x0=-w/2,y0=-h/2;
-     pg.drawImage(im,{x:cx+x0*Math.cos(ph)-y0*Math.sin(ph),y:cy+x0*Math.sin(ph)+y0*Math.cos(ph),width:w,height:h,rotate:PDFLib.degrees(ph*180/Math.PI)});
-    }
+    }else if(e.classList.contains('ob')&&!e.classList.contains('lf'))await drawOb(doc,pg,H,k,e);
    }
   }
   const out=await doc.save();

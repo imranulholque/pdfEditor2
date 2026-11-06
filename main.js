@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,session}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,session,Menu}=require('electron');
 const fs=require('fs'),path=require('path');
 let win;
 const pdfArg=a=>a.slice(1).find(x=>/\.pdf$/i.test(x)&&fs.existsSync(x));
@@ -6,6 +6,7 @@ const send=f=>{if(f&&win)win.webContents.send('open',path.basename(f),fs.readFil
 if(!app.requestSingleInstanceLock())app.quit();
 app.on('second-instance',(e,argv)=>{if(win){if(win.isMinimized())win.restore();win.focus();send(pdfArg(argv))}});
 app.whenReady().then(()=>{
+ Menu.setApplicationMenu(null);
  session.defaultSession.setPermissionRequestHandler((w,p,cb)=>cb(true));
  session.defaultSession.setPermissionCheckHandler(()=>true);
  win=new BrowserWindow({width:1280,height:850,backgroundColor:'#f1f3f6',autoHideMenuBar:true,
