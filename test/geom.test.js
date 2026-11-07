@@ -23,7 +23,7 @@ for(let y=8;y<10;y++)for(let x=8;x<12;x++){const o=(y*w+x)*4;d[o]=d[o+1]=d[o+2]=
 const f=G.flood(d,w,h,6,6,30);assert.deepStrictEqual([f.x0,f.y0,f.x1,f.y1],[5,5,25,15]);assert.strictEqual(G.floodType(f,w),'rect');
 // content stream
 const src='q 1 0 0 1 0 0 cm 1 0 0 rg 100 100 200 50 re f Q\nBT /F1 12 Tf 10 10 Td (Hi \\) there) Tj ET\nq 0 0 1 RG 4 w 10 10 m 60 10 l S Q\nq 50 0 0 40 300 400 cm /Im1 Do Q';
-const sc=CS.scan(src);assert.strictEqual(sc.length,3);
+const sc=CS.scan(src).filter(o=>o.k!=='t');assert.strictEqual(sc.length,3);
 assert.deepStrictEqual(sc[0].b,{x0:100,y0:100,x1:300,y1:150});assert.deepStrictEqual(sc[0].fill,[255,0,0]);
 assert.strictEqual(sc[1].b.y0,8);assert.strictEqual(sc[2].k,'i');assert.deepStrictEqual(sc[2].b,{x0:300,y0:400,x1:350,y1:440});
 const mt=CS.match(sc,'p',{x0:100.2,y0:99.8,x1:300,y1:150},new Set());assert.strictEqual(mt.n,0);
