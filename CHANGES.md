@@ -1,3 +1,21 @@
+# PDF Editor 2.0 – live updates + learning
+* Editor logic updates itself from your GitHub repo (see UPDATES.md): checksum-verified, atomic, auto-rollback.
+* ✍ Teach / 🤖 Read with AI turn corrections into permanent per-font word fixes; shareable through knowledge/fixes.json.
+* ⚙ settings dialog, update banner.
+
+# PDF Editor 1.4 – moving text leaves nothing behind
+* Bug fix: after moving a line, the original text stayed visible (the cover was only drawn while typing). Moving now refreshes the preview.
+* The live preview now performs the real removal: the edited words' original text operators are switched off in the page render (like the saved file), instead of hiding them under a coloured box. Falls back to the box only if the PDF's text operators can't be matched 1:1.
+* All page re-renders are serialised (no more interleaving between picture lifts and text removal).
+
+# PDF Editor 1.3 – word-level editing
+* A line is compared **word by word** with the original. Only the words you change are covered, removed from the PDF and rewritten; every other word keeps its original glyphs, on screen and in the saved file.
+  This is what makes PDFs with broken font-to-Unicode tables (e.g. SolaimanLipiNormal tickets) editable: the broken text is never re-typeset.
+* If a PDF text piece contains several words, the region grows to that whole piece (unchanged words are re-typed from the same font).
+* Moving / restyling a line, or lines marked unreadable, are still replaced as a whole line.
+* NUL / U+FFFD placeholders from the PDF are removed from the editable text.
+* On screen, unchanged words stay transparent (original pixels show through); only changed words are painted (CSS Custom Highlight API).
+
 # PDF Editor 1.2 – what changed
 
 ## 1.2: real in-place editing, sharp display, Bengali merge fix

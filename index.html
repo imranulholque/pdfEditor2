@@ -33,9 +33,14 @@ input[type=number]{width:64px;cursor:text}
 .ti.sel{outline:1px solid var(--ac)}
 .cv{position:absolute;z-index:1}
 .ob{position:absolute;z-index:60;cursor:move;touch-action:none}
+.pv{position:absolute;z-index:99;pointer-events:none}
 .sl{position:absolute;left:0;top:0;pointer-events:none;display:block}
 .ob.sh svg{width:100%;height:100%;display:block;pointer-events:none;overflow:hidden}.ob.sh path{vector-effect:non-scaling-stroke}
-#insp{position:fixed;z-index:999;background:#111c;color:#fff;font:12px/1.5 Consolas,monospace;padding:10px 12px;border-radius:8px;max-width:470px;white-space:pre-wrap;word-break:break-all;display:none;cursor:pointer}
+#insp{position:fixed;z-index:999;background:#111e;color:#fff;font:12px/1.5 Consolas,monospace;padding:10px 12px;border-radius:8px;width:480px;display:none}
+#insp pre{margin:0;white-space:pre-wrap;word-break:break-all}#ic{display:flex;gap:6px;margin-top:8px}#ic input{flex:1;min-width:0;font:13px sans-serif;padding:4px 6px;border-radius:6px;border:0}#ic button{font:12px sans-serif}#im{margin-top:6px;color:#9fe}
+#cfgm{position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center}#cfgm[hidden]{display:none}
+#cfgm .mc{background:#fff;border-radius:12px;padding:18px 20px;width:480px;max-width:94vw;font:13px sans-serif;display:grid;gap:8px}#cfgm label{display:grid;gap:3px}#cfgm input{padding:6px 8px;border:1px solid #ccd;border-radius:6px}#cfgm .row{display:flex;gap:6px;flex-wrap:wrap}
+#updbar{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:1001;background:#16a34a;color:#fff;padding:8px 14px;border-radius:10px;font:13px sans-serif;display:flex;gap:8px;align-items:center}#updbar[hidden]{display:none}
 #shbox{display:none;align-items:center;gap:6px;padding:2px 8px;border:1px dashed var(--bd);border-radius:8px}
 .ob img{width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none}
 .ob.sel{outline:2px solid var(--ac)}
@@ -55,6 +60,16 @@ body.text .hit,body.cut .hit{pointer-events:none}
 #zb{margin:0 auto}#doc{transform-origin:0 0;width:max-content}
 .gl{position:absolute;background:#ec4899;z-index:200;pointer-events:none}body.nodet .hit{display:none}
 </style></head><body>
+<div id="updbar" hidden><span id="updt"></span><button id="updgo">Reload now</button><button id="updno">Later</button></div>
+<div id="cfgm" hidden><div class="mc"><b style="font-size:15px">Auto-update, AI &amp; learning</b><div id="cv" style="color:#667"></div>
+<label>GitHub repo (owner/name)<input id="cr" placeholder="yourname/pdfEditor2"></label>
+<label>Branch<input id="cbr" placeholder="main"></label>
+<label>GitHub token — only needed for a private repo (stored encrypted)<input id="ctk" type="password" placeholder="leave empty to keep the saved one"></label>
+<label>Claude API key — optional, enables “🤖 Read with AI” (stored encrypted)<input id="cak" type="password" placeholder="sk-ant-…  (leave empty to keep)"></label>
+<label>Claude model<input id="cmd" placeholder="claude-sonnet-5-5"></label>
+<div class="row"><button id="csave">Save</button><button id="cchk">Check for updates now</button><button id="cfx">Copy learned fixes</button><button id="cclose">Close</button></div>
+<div id="cmsg" style="color:#444;min-height:18px"></div></div></div>
+
 <header>
 <b>PDF Editor</b>
 <button id="open">Open PDF</button><input type="file" id="f" accept="application/pdf,.pdf" hidden>
@@ -78,13 +93,15 @@ body.text .hit,body.cut .hit{pointer-events:none}
 <input type="range" id="tol" min="5" max="150" value="45" title="Strength">
 <button id="rm">Remove</button><button id="rs">Restore</button></span>
 <span id="shbox">Shape: fill <input type="color" id="shf"><button id="shn" title="Toggle fill on/off">no fill</button> line <input type="color" id="shs"><input type="number" id="shw" min="0" max="40" step="0.5" title="Line width (0 = none)"></span>
-<button id="save" class="pri">Save PDF</button>
+<button id="cfgb" title="Auto-update from GitHub, AI reading, learning">⚙ Update &amp; AI</button><button id="save" class="pri">Save PDF</button>
 </header>
 <div id="hint">Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it · Double-click a solid colour area to grab it · Delete: select all text and press Delete</div>
 <div id="zb"><main id="doc"><div id="empty"><h2>Open a PDF to start</h2><p>Click “Open PDF”, drop a file here, or press Ctrl+V to paste one.<br>Works with English and বাংলা (Avro, Bijoy, any keyboard).</p></div></main></div>
 <div id="grip" title="Drag to move">✥</div>
 
 <script>
+/* if a GitHub update ever breaks startup, the app reverts to the bundled version automatically */
+addEventListener('error',e=>{if(!window._ready&&window.api&&api.crash)api.crash(e.message||(e.target&&e.target.src)||'load error')},true);addEventListener('unhandledrejection',e=>{if(!window._ready&&window.api&&api.crash)api.crash(String(e.reason))});
 pdfjsLib.GlobalWorkerOptions.workerSrc='node_modules/pdfjs-dist/build/pdf.worker.min.js';
 const SC=1.5,$=s=>document.querySelector(s),grip=$('#grip');
 let bytes,tool='edit',sel=null,cur=null,name='edited.pdf';
@@ -171,13 +188,13 @@ $('#f').onchange=e=>e.target.files[0]&&openFile(e.target.files[0]);
 addEventListener('dragover',e=>e.preventDefault());
 function handleFiles(fl){for(const f of fl){if(/pdf/i.test(f.type+f.name))return openFile(f);if(/^image/.test(f.type)&&bytes)return addImage(f)}}
 addEventListener('drop',e=>{e.preventDefault();handleFiles(e.dataTransfer.files)});
-let QS=2;const UND=[],RED=[];let Z=1,clip=null,useEmb=true;
+let QS=2,DOCP=null;const UND=[],RED=[];let Z=1,clip=null,useEmb=true;
 function push(u,r){UND.push({u,r});RED.length=0}
 function undo(){const a=UND.pop();if(a){a.u();RED.push(a);select(null)}}
 function redo(){const a=RED.pop();if(a){a.r();UND.push(a);select(null)}}
 function snap(e){return{css:e.style.cssText,ds:{...e.dataset},t:e.classList.contains('ti')?e.textContent:null}}
 function put(e,s){e.style.cssText=s.css;for(const k in e.dataset)delete e.dataset[k];Object.assign(e.dataset,s.ds);
- if(s.t!==null&&e.textContent!==s.t)e.textContent=s.t;const i=e.querySelector('img');if(i&&i.src!==e.dataset.cur)i.src=e.dataset.cur;if(e.classList.contains('sh'))applyShape(e)}
+ if(s.t!==null&&e.textContent!==s.t)e.textContent=s.t;const i=e.querySelector('img');if(i&&i.src!==e.dataset.cur)i.src=e.dataset.cur;if(e.classList.contains('sh'))applyShape(e);if(e.classList.contains('ti'))preview(e)}
 function track(e,fn){const a=snap(e);fn();const b=snap(e);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(e,a),()=>put(e,b))}
 function setZoom(z){Z=Math.min(4,Math.max(.25,z));const d=$('#doc'),b=$('#zb');d.style.transform=`scale(${Z})`;
  b.style.width=d.scrollWidth*Z+'px';b.style.height=d.scrollHeight*Z+'px';$('#zl').textContent=Math.round(Z*100)+'%'}
@@ -215,7 +232,7 @@ addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKe
 });
 async function openFile(f){name=f.name.replace(/\.pdf$/i,'')+'-edited.pdf';loadBytes(new Uint8Array(await f.arrayBuffer()))}
 async function loadBytes(b){
- bytes=b;await window.fontsReady;ST.bump('pdfs');window._pre=1;used=new Map();UND.length=RED.length=0;clip=null;Z=1;$('#doc').style.transform='';
+ bytes=b;DOCP=null;await window.fontsReady;ST.bump('pdfs');window._pre=1;used=new Map();UND.length=RED.length=0;clip=null;Z=1;$('#doc').style.transform='';
  $('#doc').innerHTML='<p>Loading…</p>';select(null);
  try{const pdf=await pdfjsLib.getDocument({data:bytes.slice()}).promise;$('#doc').innerHTML='';QS=pdf.numPages>12?1.5:(devicePixelRatio>=1.5&&pdf.numPages<=6?3:2);
   for(let n=1;n<=pdf.numPages;n++)await renderPage(pdf,n);showFonts();setZoom(1);
@@ -234,13 +251,14 @@ async function renderPage(pdf,n){
  const tc=await pg.getTextContent(),runs=[],FI={};let rn=null;
  const finfo=id=>FI[id]||(FI[id]=(()=>{let nm='',ld='';try{const f=pg.commonObjs.get(id);nm=(f.name||'').replace(/^[A-Z]{6}\+/,'');ld=f.loadedName||''}catch(e){}
   return{nm,ld,w:/black/i.test(nm)?900:/extra\s?bold|ultra\s?bold|heavy/i.test(nm)?800:/semi\s?bold|demi/i.test(nm)?600:/bold/i.test(nm)?700:/medium/i.test(nm)?500:/extra\s?light|ultra\s?light|thin|hairline/i.test(nm)?200:/light/i.test(nm)?300:400,b:/bold|black|heavy/i.test(nm),i:/italic|oblique/i.test(nm)}})());
+ tc.items.forEach(it=>{if(it.str)it.str=it.str.replace(/[\u0000\uFFFD]/g,'')});
  for(const it of tc.items){
   const t=pdfjsLib.Util.transform(vp.transform,it.transform),fs=Math.hypot(t[0],t[1])||10,x=t[4],b=t[5],wd=it.width*SC,fi=finfo(it.fontName);
   if(!it.str.trim()){if(rn&&Math.abs(b-rn.b)<rn.fs*.25&&x>rn.x-.4*rn.fs&&x-(rn.x+rn.w)<1.2*rn.fs){if(it.str)rn.pend=true;rn.w=Math.max(rn.w,x+wd-rn.x)}continue}
-  const gap=rn?x-(rn.x+rn.w):0,oi={x:it.transform[4],y:it.transform[5]},len=!!rn&&BNR.test(it.str)&&BNR.test(rn.s),gmin=BNM.test(it.str)?-1.2:(len?-.9:-.4);
+  const gap=rn?x-(rn.x+rn.w):0,oi={x:it.transform[4],y:it.transform[5],s:it.str},len=!!rn&&BNR.test(it.str)&&BNR.test(rn.s),gmin=BNM.test(it.str)?-1.2:(len?-.9:-.4);
   if(rn&&rn.b2===fi.w&&rn.i2===fi.i&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>gmin*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
-   rn.items.push(oi);if(rn.pend||gap>(len?.3:.18)*rn.fs)rn.s+=' ';rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false;rn.cnt[it.fontName]=(rn.cnt[it.fontName]||0)+it.str.length}
-  else{rn={s:it.str,x,b,fs,w:wd,pend:false,b2:fi.w,i2:fi.i,items:[oi],cnt:{[it.fontName]:it.str.length}};runs.push(rn)}
+   rn.items.push(oi);if(rn.pend||gap>(len?.3:.18)*rn.fs){rn.s+=' ';rn.seq.push({sp:1})}rn.seq.push({i:rn.items.length-1,s:it.str});rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false;rn.cnt[it.fontName]=(rn.cnt[it.fontName]||0)+it.str.length}
+  else{rn={s:it.str,x,b,fs,w:wd,pend:false,b2:fi.w,i2:fi.i,items:[oi],seq:[{i:0,s:it.str}],cnt:{[it.fontName]:it.str.length}};runs.push(rn)}
  }
  await Promise.all([...new Set(runs.map(r=>finfo(Object.keys(r.cnt).sort((p,q)=>r.cnt[q]-r.cnt[p])[0]).nm))].filter(n=>n&&!matchFont(n)).map(n=>webFont(n)));
  for(const r of runs){
@@ -248,11 +266,12 @@ async function renderPage(pdf,n){
   const fam=(fn.split(/[-,]/)[0]||'').replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
   const m=matchFont(fn)||WEB[fn]||null,pf=m||(bn?'Nirmala UI':fam);if(fn)used.set(fn,m);
   const raw=r.s;let bf='',sc0=0;if(bn){try{const q=await chooseBn(c,r,fi,fn,fs,pf);r.s=q.text;bf=q.bf;sc0=q.sc}catch(err){}}
+  r.s=ST.applyFix(nz(fn)||'?',r.s);
   const x=r.x,y=r.b-fs*.94,cw=Math.max(r.w,4),ch=fs*1.2,gen=st.fontFamily||'sans-serif',emb=useEmb&&!bn?fi.ld:'';
   const stk=bn?`"${pf}",${bf?`"${bf}",`:''}"${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`;
   const e=mkTi(ov,{x,y,fs,txt:r.s,pf,fam:(emb?`"${emb}",`:'')+stk,b:fi.b,w:fi.w,i:fi.i});
   const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg),stk,emb,bf,lat:pf,sc:sc0.toFixed(2)});
-  e.style.minWidth=cw+'px';e._items=r.items;e._raw=raw;e._fn=fn;e.dataset.otxt=r.s;
+  e.style.minWidth=cw+'px';e._items=r.items;e._raw=raw;e._fn=fn;e.dataset.otxt=r.s;{const wi=wordItems(r.seq);e._wi=wi.length===r.s.split(' ').length?wi:null}
   e.addEventListener('contextmenu',ev=>{ev.preventDefault();inspect(e,ev)});
  }
  fit(ov);
@@ -269,7 +288,7 @@ function mkTi(ov,o){
  const e=mk('div','ti');e.contentEditable='true';e.spellcheck=false;e.dataset.fam=o.pf||'Arial';e.textContent=o.txt;
  e.style.cssText=`left:${o.x}px;top:${o.y}px;font-size:${o.fs}px;font-family:${o.fam};font-weight:${o.w||(o.b?700:400)};font-style:${o.i?'italic':'normal'}`;
  ov.append(e);
- e.addEventListener('focus',()=>{select(e);e._s=snap(e);if(e.dataset.un&&!e.dataset.ed)setTimeout(()=>{const r=document.createRange();r.selectNodeContents(e);const g=getSelection();g.removeAllRanges();g.addRange(r)},0)});
+ e.addEventListener('focus',()=>{if(!e._wr&&e.dataset.otxt!=null&&!e.dataset.ed)try{measureWords(e)}catch(x){}select(e);e._s=snap(e);if(e.dataset.un&&!e.dataset.ed)setTimeout(()=>{const r=document.createRange();r.selectNodeContents(e);const g=getSelection();g.removeAllRanges();g.addRange(r)},0)});
  e.addEventListener('blur',()=>{const a=e._s,b=snap(e);if(a&&JSON.stringify(a)!==JSON.stringify(b))push(()=>put(e,a),()=>put(e,b))});
  e.addEventListener('pointerdown',ev=>{cur=ov.parentNode;select(e)});
  e.addEventListener('input',()=>{mark(e);if(sel===e)placeGrip()});
@@ -278,15 +297,111 @@ function mkTi(ov,o){
  return e;
 }
 
+function wordItems(seq){const W=[[]];let cur=W[0];
+ for(const q of seq){if(q.sp){cur=[];W.push(cur);continue}
+  for(const ch of q.s){if(ch===' '){cur=[];W.push(cur)}else if(!cur.includes(q.i))cur.push(q.i)}}
+ return W}
+/* ---------- word-level edit model: only the words you changed are touched, everything else keeps its original glyphs ---------- */
+const movedE=e=>Math.abs(e.offsetLeft-(+e.dataset.ox))>.6||Math.abs(e.offsetTop-(+e.dataset.oy))>.6;
+function regionOf(e){
+ if(e.classList.contains('nw')||e.dataset.otxt==null)return null;
+ const O=e.dataset.otxt.split(' '),T=e.textContent,N=T.split(' ');
+ const whole=!e._wi||!e._items||e.dataset.un||sig(e)!==e.dataset.osig||movedE(e)||/\n/.test(T);
+ if(whole){if(!whole||(T===e.dataset.otxt&&!e.dataset.un&&sig(e)===e.dataset.osig&&!movedE(e)))return null;
+  return{whole:true,old:[0,O.length],nw:[0,N.length],items:e._items||[],text:T}}
+ let i=0;while(i<O.length&&i<N.length&&O[i]===N[i])i++;
+ let jo=O.length,jn=N.length;while(jo>i&&jn>i&&O[jo-1]===N[jn-1]){jo--;jn--}
+ if(i===jo&&i===jn)return null;
+ if(i===jo){if(jo<O.length){jo++;jn++}else if(i>0){i--}else return{whole:true,old:[0,O.length],nw:[0,N.length],items:e._items,text:T}}
+ for(let g=0;g<20;g++){const inS=new Set();for(let w=i;w<jo;w++)(e._wi[w]||[]).forEach(x=>inS.add(x));
+  if(i>0&&(e._wi[i-1]||[]).some(x=>inS.has(x))){i--;continue}
+  if(jo<O.length&&(e._wi[jo]||[]).some(x=>inS.has(x))){jo++;jn++;continue}break}
+ const idx=new Set();for(let w=i;w<jo;w++)(e._wi[w]||[]).forEach(x=>idx.add(x));
+ if(!idx.size)return{whole:true,old:[0,O.length],nw:[0,N.length],items:e._items,text:T};
+ const ids=[...idx].sort((a,b)=>a-b);
+ return{whole:false,old:[i,jo],nw:[i,jn],items:ids.map(x=>e._items[x]),ids,text:N.slice(i,jn).join(' ')}}
+
+/* ---------- live preview = real removal: the edited words' original text operators are switched off in the page render ---------- */
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function ensureTops(w){
+ if(w._tops!==undefined)return;
+ try{let t=0;while(!w._F0&&t++<40)await sleep(100);
+  if(!DOCP)DOCP=await PDFLib.PDFDocument.load(bytes,{ignoreEncryption:true});
+  const src=PO.pageSource(PDFLib,DOCP,DOCP.getPage(w._n-1)),tops=CS.scan(src).filter(o=>o.k==='t'),O=pdfjsLib.OPS,
+   sh=new Set([O.showText,O.showSpacedText,O.nextLineShowText,O.nextLineSetSpacingShowText]),idx=[];
+  w._F0.forEach((f,i)=>{if(sh.has(f))idx.push(i)});
+  w._tops=tops.length===idx.length?tops:null;w._tidx=idx;   /* only trusted when both lists have the same number of text operators */
+ }catch(err){w._tops=null}}
+async function runKill(w){
+ if(w._killing){w._killAgain=true;return}w._killing=true;
+ try{do{w._killAgain=false;await ensureTops(w);if(!w._tops)break;
+  const used=new Set(),want=new Map(),els=[...w._ov.querySelectorAll('.ti')].filter(e=>e.dataset.otxt!=null);
+  for(const e of els){e._kill=[];const reg=e.dataset.ed?regionOf(e):null;if(!reg)continue;
+   for(const it of reg.items){const m=CS.matchText(w._tops,it.x,it.y,used);if(m){used.add(m);const i=w._tidx[w._tops.indexOf(m)];want.set(i,'t');e._kill.push(i)}}
+   e._full=e._kill.length===reg.items.length}
+  const cur=[...w._dead].filter(([i,k])=>k==='t').map(x=>x[0]).sort().join(),nxt=[...want.keys()].sort().join();
+  if(cur!==nxt){for(const[i,k]of[...w._dead])if(k==='t')w._dead.delete(i);want.forEach((v,i)=>w._dead.set(i,v));await relayer(w)}
+  for(const e of els){const ok=!!(e._kill&&e._kill.length&&e._full);if(e._killOk!==ok){e._killOk=ok;preview(e)}}
+ }while(w._killAgain)}catch(err){}
+ w._killing=false}
+const killTimers=new WeakMap();
+function scheduleKill(w){clearTimeout(killTimers.get(w));killTimers.set(w,setTimeout(()=>runKill(w),350))}
+let HLN=0;const HLR={};
+function hlRule(id,col,bg){HLR[id]=`::highlight(${id}){color:${col};background-color:${bg}}`;let st=document.getElementById('hlcss');if(!st){st=mk('style');st.id='hlcss';document.head.append(st)}st.textContent=Object.values(HLR).join('\n')}
+function rangeFor(e,a,b){const tw=document.createTreeWalker(e,NodeFilter.SHOW_TEXT);let pos=0,n,r=document.createRange(),got=false;
+ while((n=tw.nextNode())){const L=n.length;if(!got&&a<=pos+L){r.setStart(n,Math.max(0,a-pos));got=true}
+  if(got&&b<=pos+L){r.setEnd(n,Math.max(0,b-pos));return r}pos+=L}
+ return got?r:null}
+function measureWords(e){const O=e.dataset.otxt.split(' '),or=e.parentNode.getBoundingClientRect(),res=[];let pos=0;
+ for(const w of O){const r=w.length?rangeFor(e,pos,pos+w.length):null,b=r?r.getBoundingClientRect():null;res.push(b&&b.width?{l:(b.left-or.left)/Z,r:(b.right-or.left)/Z}:null);pos+=w.length+1}
+ e._wr=res}
+function preview(e){
+ if(!e.classList.contains('ti')||e.classList.contains('nw'))return;
+ (e._pv||[]).forEach(x=>x.remove());e._pv=[];
+ const id=e._hid||(e._hid='h'+(++HLN));try{CSS.highlights.delete(id)}catch(x){}
+ const reg=e.dataset.ed?regionOf(e):null;
+ const key=reg?(reg.whole?'w':reg.ids.join()):'';if(key!==e._rk){e._rk=key;e._killOk=false}
+ scheduleKill(e.parentNode.parentNode);
+ if(!reg)return;
+ const col=e.dataset.col||'#000000',bg=e.dataset.bg||'#ffffff';hlRule(id,col,e._killOk?'transparent':bg);
+ let L=null,R=null;
+ if(reg.whole){L=+e.dataset.ox;R=L+ +e.dataset.cw}
+ else{const a=(e._wr||[]).slice(reg.old[0],reg.old[1]).filter(Boolean);if(a.length){L=Math.min(...a.map(x=>x.l));R=Math.max(...a.map(x=>x.r))}}
+ if(L!=null&&!e._killOk){const pv=mk('div','pv');pv.style.cssText=`left:${L-1}px;top:${e.dataset.oy}px;width:${R-L+2}px;height:${e.dataset.ch}px;background:${bg}`;e.parentNode.insertBefore(pv,e);e._pv.push(pv)}
+ const N=e.textContent.split(' ');let a=0;for(let w=0;w<reg.nw[0];w++)a+=N[w].length+1;
+ const len=reg.whole?e.textContent.length:N.slice(reg.nw[0],reg.nw[1]).join(' ').length;
+ if(len>0&&window.CSS&&CSS.highlights){const r=rangeFor(e,a,a+len);if(r)CSS.highlights.set(id,new Highlight(r))}}
 /* ---------- helpers: change detection + inspector ---------- */
 const sig=e=>[e.style.fontSize,e.style.fontFamily,e.style.fontWeight,e.style.fontStyle,e.style.letterSpacing,e.dataset.col].join('|');
-const changed=e=>e.dataset.ed&&(e.textContent!==e.dataset.otxt||sig(e)!==e.dataset.osig||Math.abs(e.offsetLeft-(+e.dataset.ox))>.6||Math.abs(e.offsetTop-(+e.dataset.oy))>.6);
+const changed=e=>e.dataset.ed&&(e.classList.contains('nw')||!!regionOf(e));
 function inspect(e,ev){
- let p=$('#insp');if(!p){p=mk('pre');p.id='insp';document.body.append(p);p.onclick=()=>p.style.display='none'}
+ let p=$('#insp');
+ if(!p){p=mk('div');p.id='insp';p.innerHTML='<pre id="ib"></pre><div id="ic"><input id="ti" spellcheck="false" placeholder="correct text of this line"><button id="tb" title="Remember these corrections for every PDF that uses this font">✍ Teach</button><button id="ab" title="Send ONLY this line\'s picture to Claude to read it">🤖 Read with AI</button><button id="xb">✕</button></div><div id="im"></div>';
+  document.body.append(p);p.addEventListener('pointerdown',x=>x.stopPropagation());$('#xb').onclick=()=>p.style.display='none'}
  const cps=t=>Array.from(t||'').map(c=>'U+'+c.codePointAt(0).toString(16).toUpperCase().padStart(4,'0')).join(' ');
- p.textContent=`PDF font : ${e._fn||'?'}\nBengali font chosen : ${e.dataset.bf||'-'}   match score : ${e.dataset.sc||'-'}\nraw from PDF : ${e._raw}\n${cps(e._raw)}\nshown as : ${e.dataset.otxt}\n${cps(e.dataset.otxt)}\n\n(click to close — send me this if a line looks wrong)`;
- p.style.cssText=`display:block;left:${Math.min(ev.clientX,innerWidth-480)}px;top:${Math.min(ev.clientY,innerHeight-220)}px`}
-function mark(e){e.dataset.ed=1;e.style.color=e.dataset.col||'#000';e.style.background=e.dataset.bg||'transparent'}
+ $('#ib').textContent=`PDF font : ${e._fn||'?'}\nBengali font chosen : ${e.dataset.bf||'-'}   match score : ${e.dataset.sc||'-'}\nraw from PDF : ${e._raw}\n${cps(e._raw)}\nshown as : ${e.dataset.otxt}`;
+ $('#ti').value=e.dataset.otxt||'';$('#im').textContent='';
+ $('#tb').onclick=()=>teachLine(e,$('#ti').value);$('#ab').onclick=()=>aiLine(e);
+ p.style.cssText=`display:block;left:${Math.max(8,Math.min(ev.clientX,innerWidth-500))}px;top:${Math.max(8,Math.min(ev.clientY,innerHeight-230))}px`}
+const say=m=>{const x=$('#im');if(x)x.textContent=m};
+/* learning from a correction: stored per PDF font, applied to every line/PDF that shows the same broken word */
+function teachLine(e,nt){
+ const key=nz(e._fn)||'?',O=(e.dataset.otxt||'').split(' '),N=nt.trim().split(' ');
+ if(O.length!==N.length)return say('Keep the same number of words ('+O.length+'). Only fix the spelling inside words.');
+ let n=0;for(let i=0;i<O.length;i++)if(ST.teach(key,O[i],N[i],e._aiSrc||'user'))n++;
+ if(!n)return say('Nothing new to learn.');
+ document.querySelectorAll('.ti').forEach(t=>{if(nz(t._fn)===nz(e._fn)&&!t.dataset.ed&&t.dataset.otxt!=null){const f=ST.applyFix(key,t.dataset.otxt);if(f!==t.dataset.otxt){t.textContent=f;t.dataset.otxt=f;t._wr=null}}});
+ say('✓ Learned '+n+' word'+(n>1?'s':'')+'. It will be fixed automatically from now on (also in other PDFs with this font).')}
+async function aiLine(e){
+ if(!window.api||!api.aiRead)return say('AI reading works in the desktop app only.');
+ const w=e.parentNode.parentNode,pad=6,q=w._d.width/w._c.width,x=Math.max(0,+e.dataset.ox-pad),y=Math.max(0,+e.dataset.oy-pad),ww=(+e.dataset.cw)+pad*2,hh=(+e.dataset.ch)+pad*2;
+ const c=cvs(Math.round(ww*q),Math.round(hh*q));c.getContext('2d').drawImage(w._d,x*q,y*q,ww*q,hh*q,0,0,c.width,c.height);
+ say('Asking Claude… (only this one line image is sent)');
+ const r=await api.aiRead({images:[c.toDataURL('image/png').split(',')[1]],hint:e.dataset.otxt});
+ if(!r.ok)return say('AI: '+r.error);
+ $('#ti').value=(r.lines[0]||'').replace(/\s+/g,' ').trim();e._aiSrc='ai';
+ say('AI reading is in the box. Check it (AI can be wrong), fix if needed, then press ✍ Teach to save.')}
+function mark(e){e.dataset.ed=1;if(e.classList.contains('nw')){e.style.color=e.dataset.col||'#000';e.style.background=e.dataset.bg||'transparent'}else preview(e)}
 
 /* ---------- selection & toolbar ---------- */
 function select(el){
@@ -305,7 +420,7 @@ function select(el){
 }
 function placeGrip(){if(sel&&sel.classList.contains('ti')){const pw=sel.parentNode.offsetWidth;
  grip.style.display='block';grip.style.left=Math.min(sel.offsetLeft+sel.offsetWidth+10,pw-20)+'px';grip.style.top=sel.offsetTop+Math.max(0,sel.offsetHeight/2-8)+'px'}}
-grip.onpointerdown=e=>{if(sel){mark(sel);drag(e,sel,placeGrip)}};
+grip.onpointerdown=e=>{if(sel){mark(sel);drag(e,sel,()=>{placeGrip();preview(sel)})}};
 function drag(e,el,fn){e.preventDefault();const a=snap(el),sx=e.clientX,sy=e.clientY,l=el.offsetLeft,t=el.offsetTop,ov=el.parentNode;
  const o=[...ov.children].filter(n=>n!==el&&(n.classList.contains('ti')||n.classList.contains('ob'))).map(n=>({l:n.offsetLeft,r:n.offsetLeft+n.offsetWidth,t:n.offsetTop,b:n.offsetTop+n.offsetHeight}));
  const gx=mk('div','gl'),gy=mk('div','gl');gx.style.cssText='width:1px;top:0;bottom:0;display:none';gy.style.cssText='height:1px;left:0;right:0;display:none';ov.append(gx,gy);
@@ -444,13 +559,15 @@ async function scanObjects(w){
 /* which pdf.js operators to draw. rg={lo,hi}: only paint ops strictly between lo and hi; dead (lifted) ones never */
 function setOps(w,rg){const F=w._ol.fnArray,F0=w._F0,O=pdfjsLib.OPS;
  for(let i=0;i<F0.length;i++){let f=F0[i];
-  if(w._dead.has(i))f=w._dead.get(i)==='i'?O.setFlatness:O.endPath;
+  if(w._dead.has(i))f=w._dead.get(i)==='p'?O.endPath:O.setFlatness;
   else if(rg&&(i<=rg.lo||i>=rg.hi)){if(w._fl.has(f))f=O.endPath;else if(w._pt.has(f))f=O.setFlatness}
   F[i]=f}}
 let busy=false;
 const rend=async(pg,vp,tr,tf)=>{const c=cvs(Math.ceil(vp.width),Math.ceil(vp.height));await pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp,transform:tf,background:tr?'rgba(0,0,0,0)':undefined}).promise;return c};
 /* rebuild the stacking layers: page content below / between / above every lifted object, so z-order stays exact */
-async function relayer(w){
+let RQ=Promise.resolve();
+const relayer=w=>(RQ=RQ.then(()=>relayer0(w),()=>relayer0(w)));
+async function relayer0(w){
  const pg=w._pg,vp=w._vp,vh=w._vh,L=[...w._lifted].sort((a,b)=>a.o.i-b.o.i),ids=L.map(l=>l.o.i);
  (w._sl||[]).forEach(c=>c.remove());w._sl=[];
  const g=w._c.getContext('2d'),gd=w._d.getContext('2d');
@@ -625,10 +742,10 @@ function guardOk(cmds,adv,txt,cs,fs,ls){
  g2.fill(new Path2D(cmds.map(c=>c[0]==='Z'?'Z':c[0]+c.slice(1).map((v,i)=>i%2?(by-v*S):(v*S+bx)).join(' ')).join('')));
  const A=BN.inkMask(g1.getImageData(0,0,w,h).data,w,h,[255,255,255],150),B=BN.inkMask(g2.getImageData(0,0,w,h).data,w,h,[255,255,255],150);
  return BN.f1(A,B,w,h,2)>=.7}
-async function vecStr(e,H,k,vp){
+async function vecStr(e,H,k,vp,o){
  try{
   if(!window.fontkit)return null;
-  const cs=getComputedStyle(e),fs=parseFloat(cs.fontSize),wt=+cs.fontWeight>=600?700:400,it=cs.fontStyle==='italic',L=e.innerText.replace(/\n$/,'').split('\n'),
+  const cs=getComputedStyle(e),fs=parseFloat(cs.fontSize),wt=+cs.fontWeight>=600?700:400,it=cs.fontStyle==='italic',L=o?[o.text]:e.innerText.replace(/\n$/,'').split('\n'),
    ls=cs.letterSpacing==='normal'?0:(parseFloat(cs.letterSpacing)||0),bl=baselineOf(e),d=e.dataset;
   let fams=[d.lat,d.bf,d.fam,...cs.fontFamily.split(',').map(x=>x.trim().replace(/^["']|["']$/g,''))].filter(f=>f&&!/^(sans-serif|serif|monospace|system-ui)$/.test(f));fams=[...new Set(fams)];
   const[r,g,b]=rgb(d.col||'#000000');let out=`${f4(r/255)} ${f4(g/255)} ${f4(b/255)} rg\n`;
@@ -637,9 +754,9 @@ async function vecStr(e,H,k,vp){
    if(!segs){for(const f of['Noto Sans Bengali','Arimo','Hind Siliguri']){if(!ST.has(f))await ST.ensure(f);if(!fams.includes(f))fams.push(f)}segs=await segsFor(L[i],fams,wt,it)}
    if(!segs)return null;
    const{cmds,adv}=glyphCmds(segs,fs,ls);if(!guardOk(cmds,adv,L[i],cs,fs,ls))return null;
-   const pp=vp.convertToPdfPoint(e.offsetLeft,e.offsetTop+i*1.2*fs+bl),x0=pp[0],y0=pp[1];
-   out+=cmds.map(c=>c[0]==='Z'?'h':c[0]==='M'?`${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} m`:c[0]==='L'?`${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} l`:
-    `${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} ${f4(x0+c[3]*k)} ${f4(y0+c[4]*k)} ${f4(x0+c[5]*k)} ${f4(y0+c[6]*k)} c`).join('\n')+'\nf\n'}
+   const pp=o&&o.pos?o.pos:vp.convertToPdfPoint(e.offsetLeft,e.offsetTop+i*1.2*fs+bl),x0=pp[0],y0=pp[1],sx=o&&o.avail&&adv*k>o.avail?Math.max(.6,o.avail/(adv*k)):1;
+   const X=v=>f4(x0+v*k*sx),Y=v=>f4(y0+v*k);
+   out+=cmds.map(c=>c[0]==='Z'?'h':c[0]==='M'?`${X(c[1])} ${Y(c[2])} m`:c[0]==='L'?`${X(c[1])} ${Y(c[2])} l`:`${X(c[1])} ${Y(c[2])} ${X(c[3])} ${Y(c[4])} ${X(c[5])} ${Y(c[6])} c`).join('\n')+'\nf\n'}
   return out
  }catch(err){return null}}
 async function vecText(e,H,k,extra,vp){const s=await vecStr(e,H,k,vp);if(s){extra.push(s);return true}return false}
@@ -678,17 +795,18 @@ async function applyLifted(doc,pg,w){
  PO.rebuild(PDFLib,doc,pg,items)}
 /* edit the text INSIDE the PDF: original text operators are removed, new text goes in the same spot, using the PDF's own font whenever possible */
 async function applyTextEdits(doc,pg,w,H,k){
- const done=new Set(),list=[...w._ov.querySelectorAll('.ti')].filter(changed);if(!list.length)return done;
+ const done=new Set(),list=[...w._ov.querySelectorAll('.ti')].filter(e=>e.dataset.ed&&!e.classList.contains('nw'));if(!list.length)return done;
  const cx=PO.open(PDFLib,doc,pg),vp=w._vp;
  for(const e of list){try{
-  if(!e._items||!e._items.length)continue;
-  const txt=e.textContent.replace(/\n$/,''),bn=BN.hasBn(txt)||BN.hasBn(e.dataset.otxt||''),
-   same=sig(e)===e.dataset.osig&&Math.abs(e.offsetLeft-(+e.dataset.ox))<=.6&&Math.abs(e.offsetTop-(+e.dataset.oy))<=.6;
-  const plan=PO.planText(cx,{items:e._items,text:txt},!bn&&same&&!/\n/.test(txt));
+  const reg=regionOf(e);if(!reg||!reg.items.length)continue;
+  const bn=BN.hasBn(reg.text)||BN.hasBn(e.dataset.otxt||''),plan=PO.planText(cx,{items:reg.items,text:reg.text},!bn&&!reg.whole&&!/\n/.test(reg.text));
   if(plan.mode==='none')continue;
   if(plan.mode==='tj'){PO.applyText(cx,plan,null);done.add(e);continue}
-  if(!txt.trim()){PO.applyText(cx,plan,'');done.add(e);continue}
-  const str=await vecStr(e,H,k,vp);if(str&&PO.applyText(cx,plan,str))done.add(e);
+  if(!reg.text.trim()){PO.applyText(cx,plan,'');done.add(e);continue}
+  let o=null;
+  if(!reg.whole){const f=reg.items[0],last=Math.max(...reg.ids),nx=e._items[last+1],fs=parseFloat(getComputedStyle(e).fontSize)/SC;
+   o={text:reg.text,pos:[f.x,f.y],avail:nx&&Math.abs(nx.y-f.y)<fs*.4&&nx.x>f.x?(nx.x-f.x)-fs*.08:null}}
+  const str=await vecStr(e,H,k,vp,o);if(str&&PO.applyText(cx,plan,str))done.add(e);
  }catch(err){}}
  PO.finish(cx,[]);return done}
 $('#save').onclick=async()=>{
@@ -720,5 +838,24 @@ $('#save').onclick=async()=>{
  }catch(err){alert('Save failed: '+err.message)}
  btn.textContent='Save PDF';
 };
+
+/* ---------- settings, auto-update, health reporting ---------- */
+{const cm=t=>$('#cmsg').textContent=t,hasApi=()=>window.api&&api.cfgGet;
+ const showUpd=r=>{$('#updt').textContent='⬇ Update downloaded ('+(r.changed||0)+' file'+(r.changed===1?'':'s')+'). Reload to use it.';$('#updbar').hidden=false};
+ $('#cfgb').onclick=async()=>{if(!hasApi())return alert('Auto-update is available in the desktop app.');
+  const c=await api.cfgGet();$('#cr').value=c.repo||'';$('#cbr').value=c.branch||'main';$('#cmd').value=c.model||'';$('#ctk').value=$('#cak').value='';
+  $('#ctk').placeholder=c.hasToken?'●●●● saved':'only for a private repo';$('#cak').placeholder=c.hasKey?'●●●● saved':'sk-ant-…';
+  $('#cv').textContent=`App ${c.version} · live files from GitHub: ${c.hotFiles}`+(c.hotAt?' · last sync '+new Date(c.hotAt).toLocaleString():'')+(c.rolledBack?' · ⚠ the last update was rolled back':'');cm('');$('#cfgm').hidden=false};
+ const save=()=>api.cfgSet({repo:$('#cr').value,branch:$('#cbr').value,model:$('#cmd').value,token:$('#ctk').value,aiKey:$('#cak').value});
+ $('#csave').onclick=async()=>{await save();$('#ctk').value=$('#cak').value='';cm('Saved ✓')};
+ $('#cchk').onclick=async()=>{await save();cm('Checking GitHub…');const r=await api.updCheck();
+  if(!r.ok)cm('❌ '+r.error);else if(r.changed||r.removed){cm('✅ '+r.changed+' file(s) updated');$('#cfgm').hidden=true;showUpd(r)}else cm('✅ Already up to date ('+r.total+' files tracked)')};
+ $('#cfx').onclick=()=>{navigator.clipboard.writeText(JSON.stringify(ST.exportFixes(),null,1));cm('Copied. Merge it into knowledge/fixes.json in your repo and commit — every install learns it.')};
+ $('#cclose').onclick=()=>$('#cfgm').hidden=true;
+ $('#updno').onclick=()=>$('#updbar').hidden=true;
+ $('#updgo').onclick=()=>{if(UND.length&&!confirm('You have unsaved edits that will be lost. Reload anyway?'))return;api.updReload()};
+ if(window.api&&api.onUpdate)api.onUpdate(showUpd);
+}
+window._ready=true;if(window.api&&api.ready)api.ready();
 if(window.api)window.api.onOpen((n,b)=>{name=n.replace(/\.pdf$/i,'')+'-edited.pdf';loadBytes(b)});
 </script></body></html>
