@@ -2,6 +2,7 @@ name: Build Windows app
 on:
   push:
     branches: [main]
+    paths: [main.js, preload.js, package.json, lib/**]   # editor logic (index.html, js/, knowledge/) updates itself – no new .exe needed
   workflow_dispatch:
 jobs:
   build:
