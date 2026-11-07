@@ -6,6 +6,7 @@
 <script src="node_modules/pdfjs-dist/build/pdf.min.js"></script>
 <script src="node_modules/pdf-lib/dist/pdf-lib.min.js"></script>
 <script src="node_modules/@pdf-lib/fontkit/dist/fontkit.umd.min.js"></script>
+<script src="js/bn.js"></script><script src="js/geom.js"></script><script src="js/cstream.js"></script><script src="js/store.js"></script><script src="js/pdfops.js"></script>
 <style>
 :root{--bg:#f1f3f6;--bar:#fff;--tx:#1d2330;--ac:#2563eb;--bd:#d9dee7}
 @media(prefers-color-scheme:dark){:root{--bg:#171a21;--bar:#232833;--tx:#e8ebf1;--bd:#363d4b}}
@@ -27,18 +28,21 @@ input[type=number]{width:64px;cursor:text}
 .pg{position:relative;background:#fff;box-shadow:0 2px 12px #0003;flex:none}
 .pg canvas{display:block}
 .ov{position:absolute;inset:0;overflow:hidden}
-.ti{position:absolute;white-space:pre;line-height:1.2;padding:0;margin:0;outline:none;color:transparent;caret-color:#06f;z-index:2;cursor:text}
+.ti{position:absolute;white-space:pre;line-height:1.2;padding:0;margin:0;outline:none;color:transparent;caret-color:#06f;z-index:100;cursor:text}
 .ti:hover{outline:1px dashed #2563eb88}
 .ti.sel{outline:1px solid var(--ac)}
 .cv{position:absolute;z-index:1}
-.ob{position:absolute;z-index:3;cursor:move;touch-action:none}
+.ob{position:absolute;z-index:60;cursor:move;touch-action:none}
+.sl{position:absolute;left:0;top:0;pointer-events:none;display:block}
+.ob.sh svg{width:100%;height:100%;display:block;pointer-events:none;overflow:hidden}.ob.sh path{vector-effect:non-scaling-stroke}
+#shbox{display:none;align-items:center;gap:6px;padding:2px 8px;border:1px dashed var(--bd);border-radius:8px}
 .ob img{width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none}
 .ob.sel{outline:2px solid var(--ac)}
 .rs{position:absolute;right:-6px;bottom:-6px;width:14px;height:14px;background:var(--ac);border-radius:3px;cursor:nwse-resize;display:none}
 .ob.sel .rs{display:block}
-#grip{position:absolute;z-index:9;width:16px;height:16px;background:var(--ac);color:#fff;border-radius:4px;font-size:11px;line-height:16px;text-align:center;cursor:move;display:none;touch-action:none}
-.rb{position:absolute;border:1.5px dashed #e11d48;background:#e11d4818;z-index:8}
-body.cut .ti,body.cut .ob{pointer-events:none}
+#grip{position:absolute;z-index:200;width:16px;height:16px;background:var(--ac);color:#fff;border-radius:4px;font-size:11px;line-height:16px;text-align:center;cursor:move;display:none;touch-action:none}
+.rb{position:absolute;border:1.5px dashed #e11d48;background:#e11d4818;z-index:200}
+body.cut .ti,body.cut .ob{pointer-events:none}.ti[data-un]{outline:1px dotted #f59e0b}
 body.cut .ov,body.text .ov{cursor:crosshair}
 #ff{font:inherit;color:var(--tx);background:var(--bar);border:1px solid var(--bd);border-radius:7px;padding:6px 8px}
 .ob{transform-origin:50% 50%}.ob:hover{outline:1px dashed var(--ac)}
@@ -47,8 +51,8 @@ body.cut .ov,body.text .ov{cursor:crosshair}
 .ro:active{cursor:grabbing}.ob:hover .ro,.ob.sel .ro{display:block}
 .hit{position:absolute;z-index:1;cursor:pointer}.hit:hover{outline:2px solid #2563eb;background:#2563eb18}
 body.text .hit,body.cut .hit{pointer-events:none}
-#zb{margin:0 auto}#doc{transform-origin:0 0;width:max-content}.ob.lf{z-index:1}
-.gl{position:absolute;background:#ec4899;z-index:9;pointer-events:none}body.nodet .hit{display:none}
+#zb{margin:0 auto}#doc{transform-origin:0 0;width:max-content}
+.gl{position:absolute;background:#ec4899;z-index:200;pointer-events:none}body.nodet .hit{display:none}
 </style></head><body>
 <header>
 <b>PDF Editor</b>
@@ -59,7 +63,7 @@ body.text .hit,body.cut .hit{pointer-events:none}
 <button data-t="edit" class="on" title="Click any text to edit it">Edit text</button>
 <button data-t="text" title="Click anywhere to add new text / fill forms">Add text</button>
 <button data-t="cut" title="Drag a box around a logo, seal or stamp to make it movable">Move logo/stamp</button>
-<button id="det" class="on" title="Click any picture or shape in the PDF to move, rotate or resize it">Shape &amp; picture detect</button><button id="emb" class="on" title="Use the PDF&#39;s own embedded font while editing (best match; helps Bijoy/ANSI fonts)">PDF&#39;s own font</button>
+<button id="det" class="on" title="Click any picture or shape in the PDF to move, rotate or resize it. Shapes stay vector; text on them stays editable text.">Shape &amp; picture detect</button><button id="emb" class="on" title="Use the PDF&#39;s own embedded font while editing (best match; helps Bijoy/ANSI fonts)">PDF&#39;s own font</button>
 <button id="img">Add image / signature</button><input type="file" id="fi" accept="image/*" hidden>
 <span class="sep"></span>
 <input id="ff" list="fl" placeholder="Font (type to search)" style="width:190px"><datalist id="fl"></datalist>
@@ -72,9 +76,10 @@ body.text .hit,body.cut .hit{pointer-events:none}
 <input type="color" id="bgc" title="Background colour to remove">
 <input type="range" id="tol" min="5" max="150" value="45" title="Strength">
 <button id="rm">Remove</button><button id="rs">Restore</button></span>
+<span id="shbox">Shape: fill <input type="color" id="shf"><button id="shn" title="Toggle fill on/off">no fill</button> line <input type="color" id="shs"><input type="number" id="shw" min="0" max="40" step="0.5" title="Line width (0 = none)"></span>
 <button id="save" class="pri">Save PDF</button>
 </header>
-<div id="hint">Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it · Delete: select all text and press Delete</div>
+<div id="hint">Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it · Double-click a solid colour area to grab it · Delete: select all text and press Delete</div>
 <div id="zb"><main id="doc"><div id="empty"><h2>Open a PDF to start</h2><p>Click “Open PDF”, drop a file here, or press Ctrl+V to paste one.<br>Works with English and বাংলা (Avro, Bijoy, any keyboard).</p></div></main></div>
 <div id="grip" title="Drag to move">✥</div>
 
@@ -88,12 +93,13 @@ function addFont(f){if(FS.has(f))return;FS.add(f);$('#fl').append(new Option(f))
 FONTS.forEach(addFont);
 const nz=s=>(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const sty=s=>{s=(s||'').toLowerCase();return(/bold/.test(s)?'b':'')+(/italic|oblique/.test(s)?'i':'')};
-window.initFonts=()=>{window.fontsReady=(async()=>{try{LF=await queryLocalFonts();[...new Set(LF.map(f=>f.family))].sort().forEach(addFont)}catch(e){}})()};
+window.initFonts=()=>{if(window._fi)return window._fi;window._fi=window.fontsReady=(async()=>{try{await ST.load();ST.reg.forEach(k=>addFont(k.split('|')[0]))}catch(e){}try{LF=await queryLocalFonts();[...new Set(LF.map(f=>f.family))].sort().forEach(addFont)}catch(e){}})();return window._fi};
+window.initFonts();
 function matchFont(fn){if(!fn||!LF.length)return null;const n=nz(fn),b=nz(fn.split(/[-,]/)[0].replace(/(MT|PS)$/,''));
  let f=LF.find(x=>nz(x.postscriptName)===n)||LF.find(x=>nz(x.fullName)===n)||LF.find(x=>nz(x.family)===b);return f?f.family:null}
 const WEB={},WEBS=new Set(),WEBP={};
 const ALIAS={arial:'Arimo',helvetica:'Arimo',timesnewroman:'Tinos',times:'Tinos',couriernew:'Cousine',courier:'Cousine',calibri:'Carlito',cambria:'Caladea'};
-const BNF={kalpurush:['kalpurush','Kalpurush'],siyamrupali:['siyam-rupali','SiyamRupali'],solaimanlipi:['solaiman-lipi','SolaimanLipi'],nikosh:['nikosh','Nikosh'],mukti:['mukti','Mukti'],adorsholipi:['adorsho-lipi','AdorshoLipi'],ekusheylohit:['ekushey-lohit','EkusheyLohit'],aponalohit:['apona-lohit','AponaLohit']};
+const BNF={kalpurush:['kalpurush','Kalpurush','https://fonts.maateen.me/kalpurush/font.css'],siyamrupali:['siyam-rupali','Siyam Rupali','https://fonts.maateen.me/siyam-rupali/font.css'],solaimanlipi:['solaiman-lipi','SolaimanLipi','https://fonts.maateen.me/solaiman-lipi/font.css'],nikosh:['nikosh','Nikosh','https://fonts.maateen.me/nikosh/font.css'],mukti:['mukti','Mukti','https://fonts.maateen.me/mukti/font.css'],adorsholipi:['adorsho-lipi','Adorsho Lipi','https://fonts.maateen.me/adorsho-lipi/font.css'],ekusheylohit:['ekushey-lohit','EkusheyLohit'],aponalohit:['apona-lohit','AponaLohit']};
 const tryLink=(href,css)=>new Promise(res=>{const l=document.createElement('link');l.rel='stylesheet';l.href=href;const t=setTimeout(()=>res(false),9000);
  l.onload=async()=>{clearTimeout(t);try{res((await document.fonts.load(`400 16px "${css}"`)).length>0)}catch(e){res(false)}};
  l.onerror=()=>{clearTimeout(t);l.remove();res(false)};document.head.append(l)});
@@ -102,15 +108,17 @@ function webFont(nm){if(!nm||/_/.test(nm))return Promise.resolve(null);if(nm in 
   let fam=nm.split(/[-,]/)[0].replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2').trim();const k=nz(fam),bn=BNF[k];if(ALIAS[k])fam=ALIAS[k];
   const q=encodeURIComponent(fam).replace(/%20/g,'+'),css=bn?bn[1]:fam,G='https://fonts.googleapis.com/css?family='+q;
   const hrefs=bn?[`https://fonts.maateen.me/${bn[0]}/font.css`]:[G+':100,200,300,400,500,600,700,800,900,400i,700i&display=swap',G+':400,700&display=swap',G+'&display=swap'];
+  if(await ST.ensure(css,bn?bn[2]:undefined)){WEB[nm]=css;WEBS.add(css);addFont(css);return css}
   for(const h of hrefs)if(await tryLink(h,css)){WEB[nm]=css;WEBS.add(css);addFont(css);return css}
   return null})()}
 $('#addf').onclick=()=>$('#ffile').click();
-$('#ffile').onchange=async e=>{for(const f of e.target.files){const nm=f.name.replace(/\.(ttf|otf)$/i,'');
- try{const ff=new FontFace(nm,await f.arrayBuffer());await ff.load();document.fonts.add(ff);
-  LF.push({family:nm,fullName:nm,postscriptName:nm,style:/bold/i.test(nm)?'Bold':'Regular',blob:async()=>f});addFont(nm)}catch(x){alert('Cannot load '+f.name)}}
+$('#ffile').onchange=async e=>{for(const f of e.target.files){
+ try{const fam=await ST.addUser(f);addFont(fam);const nm=f.name.replace(/\.(ttf|otf)$/i,'');
+  LF.push({family:fam,fullName:nm,postscriptName:nm,style:/bold/i.test(nm)?'Bold':'Regular',blob:async()=>f});
+  $('#hint').textContent='Font "'+fam+'" saved permanently — it will be used automatically from now on.'}catch(x){alert('Cannot load '+f.name)}}
  e.target.value=''};
 function showFonts(){const a=[...used].map(([n,m])=>n+(m?(WEBS.has(m)?' ⬇':' ✓'):' ✗')).join(' · ');
- $('#hint').textContent=a?'Fonts in this PDF: '+a+'   (✓ installed · ⬇ downloaded automatically · ✗ not found, nearest font used)':'Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it'}
+ $('#hint').textContent=a?'Fonts in this PDF: '+a+'   (✓ installed · ⬇ downloaded automatically · ✗ not found, nearest font used) · 🧠 learned '+Object.keys(ST.mem.fonts).length+' fonts':'Edit text: click it and type · Move text: drag the blue grip · Click any picture/shape to move, rotate, resize it'}
 const hx=(r,g,b)=>'#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
 const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
 const mk=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e};
@@ -126,6 +134,35 @@ function fg(c,x,y,w,h,bg){const d=reg(c,x,y,w,h),[R,G,B]=rgb(bg);let b=-1,r=0,g=
  for(let i=0;i<d.length;i+=4){const s=Math.abs(d[i]-R)+Math.abs(d[i+1]-G)+Math.abs(d[i+2]-B);if(s>b){b=s;r=d[i];g=d[i+1];l=d[i+2]}}
  return b<40?'#000000':hx(r,g,l)}
 
+
+/* ---------- Bengali intelligence: repair glyph-order text + pick the best matching font by pixel comparison ---------- */
+const BNSYS=['Nirmala UI','Vrinda','Shonar Bangla','Kalpurush','SolaimanLipi','Nikosh','Siyam Rupali','Mukti','Lohit Bengali','Noto Sans Bengali','Noto Serif Bengali','Hind Siliguri'];
+const avail=f=>ST.has(f)||LF.some(x=>x.family===f);
+function origMask(c,r,fs){
+ const pad=3,x0=Math.max(0,Math.floor(r.x-pad)),y0=Math.max(0,Math.floor(r.b-fs*1.05)),w=Math.min(c.width-x0,Math.ceil(r.w+pad*2)),h=Math.min(c.height-y0,Math.ceil(fs*1.55));
+ if(w<4||h<4)return null;
+ const bg=rgb(modeCol(c,x0+3,y0+3,w-6,h-6)),d=c.getContext('2d').getImageData(x0,y0,w,h).data;
+ return{x0,y0,w,h,mask:BN.inkMask(d,w,h,bg,120)}}
+function candMask(o,txt,stack,wt,it,fs,r){
+ const cv=cvs(o.w,o.h),g=cv.getContext('2d',{willReadFrequently:true});g.fillStyle='#fff';g.fillRect(0,0,o.w,o.h);g.fillStyle='#000';
+ const f=z=>`${it?'italic ':''}${wt} ${z}px ${stack}`;g.font=f(fs);const m=g.measureText(txt).width,k=m>0?r.w/m:1;
+ g.font=f(fs*k);g.textBaseline='alphabetic';g.fillText(txt,r.x-o.x0,r.b-o.y0);
+ return{k,mask:BN.inkMask(g.getImageData(0,0,o.w,o.h).data,o.w,o.h,[255,255,255],150)}}
+async function chooseBn(c,r,fi,fn,fs,pf){
+ const cands=BN.candidates(r.s),res={text:cands[0],bf:'',sc:0,k:1},o=origMask(c,r,fs);if(!o)return res;
+ const key=nz(fn)||'?',rec=ST.recall(key),tried=new Set(),m=matchFont(fn),wt=fi.w,it=fi.i,lat=pf&&!/^Nirmala/.test(pf)?pf:'';
+ const test=bf=>{if(!bf||tried.has(bf))return;tried.add(bf);
+  const stack=(lat&&lat!==bf?`"${lat}",`:'')+`"${bf}",sans-serif`;
+  for(const t of cands){const q=candMask(o,t,stack,wt,it,fs,r);let sc=BN.f1(o.mask,q.mask,o.w,o.h,1);if(q.k<.8||q.k>1.25)sc*=.6;
+   if(sc>res.sc){res.sc=sc;res.text=t;res.bf=bf;res.k=q.k}}};
+ if(rec&&rec.bf)test(rec.bf);if(m)test(m);
+ if(res.sc<.72)for(const f of[...BNSYS,...ST.CAT.map(x=>x.f)])if(avail(f)&&tried.size<14)test(f);
+ if(res.sc<.7){let n=0;for(const x of ST.CAT){if(n>=3)break;if(avail(x.f))continue;n++;
+  if(await ST.ensure(x.f,x.css)){addFont(x.f);test(x.f);if(res.sc>=.78)break}}}
+ if(res.sc>=.55&&(!rec||res.sc>=(rec.sc||0)-.05))ST.learn(key,{bf:res.bf,vis:res.text!==r.s?1:0,sc:+res.sc.toFixed(2)});
+ ST.bump('runs');if(res.text!==r.s)ST.bump('fixed');
+ return res}
+
 /* ---------- open & render ---------- */
 $('#open').onclick=()=>$('#f').click();
 $('#f').onchange=e=>e.target.files[0]&&openFile(e.target.files[0]);
@@ -138,7 +175,7 @@ function undo(){const a=UND.pop();if(a){a.u();RED.push(a);select(null)}}
 function redo(){const a=RED.pop();if(a){a.r();UND.push(a);select(null)}}
 function snap(e){return{css:e.style.cssText,ds:{...e.dataset},t:e.classList.contains('ti')?e.textContent:null}}
 function put(e,s){e.style.cssText=s.css;for(const k in e.dataset)delete e.dataset[k];Object.assign(e.dataset,s.ds);
- if(s.t!==null&&e.textContent!==s.t)e.textContent=s.t;const i=e.querySelector('img');if(i&&i.src!==e.dataset.cur)i.src=e.dataset.cur}
+ if(s.t!==null&&e.textContent!==s.t)e.textContent=s.t;const i=e.querySelector('img');if(i&&i.src!==e.dataset.cur)i.src=e.dataset.cur;if(e.classList.contains('sh'))applyShape(e)}
 function track(e,fn){const a=snap(e);fn();const b=snap(e);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(e,a),()=>put(e,b))}
 function setZoom(z){Z=Math.min(4,Math.max(.25,z));const d=$('#doc'),b=$('#zb');d.style.transform=`scale(${Z})`;
  b.style.width=d.scrollWidth*Z+'px';b.style.height=d.scrollHeight*Z+'px';$('#zl').textContent=Math.round(Z*100)+'%'}
@@ -176,7 +213,7 @@ addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKe
 });
 async function openFile(f){name=f.name.replace(/\.pdf$/i,'')+'-edited.pdf';loadBytes(new Uint8Array(await f.arrayBuffer()))}
 async function loadBytes(b){
- bytes=b;await window.fontsReady;used=new Map();UND.length=RED.length=0;clip=null;Z=1;$('#doc').style.transform='';
+ bytes=b;await window.fontsReady;ST.bump('pdfs');used=new Map();UND.length=RED.length=0;clip=null;Z=1;$('#doc').style.transform='';
  $('#doc').innerHTML='<p>Loading…</p>';select(null);
  try{const pdf=await pdfjsLib.getDocument({data:bytes.slice()}).promise;$('#doc').innerHTML='';
   for(let n=1;n<=pdf.numPages;n++)await renderPage(pdf,n);showFonts();setZoom(1);
@@ -207,19 +244,20 @@ async function renderPage(pdf,n){
   const fid=Object.keys(r.cnt).sort((p,q)=>r.cnt[q]-r.cnt[p])[0],fi=finfo(fid),fn=fi.nm,fs=r.fs,st=tc.styles[fid]||{},bn=/[\u0980-\u09FF]/.test(r.s);
   const fam=(fn.split(/[-,]/)[0]||'').replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
   const m=matchFont(fn)||WEB[fn]||null,pf=m||(bn?'Nirmala UI':fam);if(fn)used.set(fn,m);
+  let bf='',sc0=0;if(bn){try{const q=await chooseBn(c,r,fi,fn,fs,pf);r.s=q.text;bf=q.bf;sc0=q.sc}catch(err){}}
   const x=r.x,y=r.b-fs*.94,cw=Math.max(r.w,4),ch=fs*1.2,gen=st.fontFamily||'sans-serif',emb=useEmb&&!bn?fi.ld:'';
-  const stk=bn?`"${pf}","${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`;
+  const stk=bn?`"${pf}",${bf?`"${bf}",`:''}"${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`;
   const e=mkTi(ov,{x,y,fs,txt:r.s,pf,fam:(emb?`"${emb}",`:'')+stk,b:fi.b,w:fi.w,i:fi.i});
-  const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg),stk,emb});
+  const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg),stk,emb,bf,lat:pf,sc:sc0.toFixed(2)});
   e.style.minWidth=cw+'px';
  }
  fit(ov);
- w._pg=pg;w._vp=vp;w._lifts=[];w._ol=ol;w._live=live;scanObjects(w).catch(()=>{});
+ w._pg=pg;w._vp=vp;w._ol=ol;w._live=live;scanObjects(w).catch(()=>{});
 }
 function fit(ov){
  const els=[...ov.querySelectorAll('.ti')],ws=els.map(e=>{const r=document.createRange();r.selectNodeContents(e);return r.getBoundingClientRect().width});
  els.forEach((e,i)=>{const n=e.textContent.length,cw=+e.dataset.cw,d=cw-ws[i];if(!n||ws[i]<1||Math.abs(d)<=.5)return;
-  if(/[\u0980-\u09FF]/.test(e.textContent)){const k=cw/ws[i];if(k<.8||k>1.25){e.dataset.un=1;e.title='This line\'s text could not be read exactly from the PDF. Typing replaces the whole line.'}else e.style.fontSize=parseFloat(e.style.fontSize)*k+'px'}
+  if(/[\u0980-\u09FF]/.test(e.textContent)){const k=cw/ws[i];if(k<.8||k>1.25){if(!(+e.dataset.sc>=.5)){e.dataset.un=1;e.title='This line\'s text could not be read exactly from the PDF. Typing replaces the whole line.'}}else e.style.fontSize=parseFloat(e.style.fontSize)*k+'px'}
   else e.style.letterSpacing=Math.max(-3,Math.min(3,d/n))+'px'});
 }
 function mkTi(ov,o){
@@ -239,7 +277,7 @@ function mark(e){e.dataset.ed=1;e.style.color=e.dataset.col||'#000';e.style.back
 /* ---------- selection & toolbar ---------- */
 function select(el){
  if(el&&!el.classList.contains('ti')){const a=document.activeElement;if(a&&a.isContentEditable)a.blur()}
- sel&&sel.classList.remove('sel');sel=el;grip.style.display='none';$('#bgbox').style.display='none';
+ sel&&sel.classList.remove('sel');sel=el;grip.style.display='none';$('#bgbox').style.display='none';$('#shbox').style.display='none';
  if(!el)return;el.classList.add('sel');
  if(el.classList.contains('ti')){
   const f=el.dataset.fam||'Arial';addFont(f);
@@ -247,7 +285,8 @@ function select(el){
   $('#col').value=el.dataset.col||'#000000';
   el.parentNode.append(grip);placeGrip();
  }else{
-  $('#bgbox').style.display='flex';if(el.dataset.bg)$('#bgc').value=el.dataset.bg;
+  if(el.classList.contains('sh')){const d=el.dataset;$('#shbox').style.display='flex';$('#shf').value=d.fill||'#cccccc';$('#shs').value=d.stroke||'#000000';$('#shw').value=d.lw||0}
+  else{$('#bgbox').style.display='flex';if(el.dataset.bg)$('#bgc').value=el.dataset.bg}
  }
 }
 function placeGrip(){if(sel&&sel.classList.contains('ti')){const pw=sel.parentNode.offsetWidth;
@@ -268,7 +307,7 @@ function drag(e,el,fn){e.preventDefault();const a=snap(el),sx=e.clientX,sy=e.cli
 const isTi=()=>sel&&sel.classList.contains('ti');
 $('#ff').onfocus=e=>{e.target.dataset.o=e.target.value;e.target.value=''};
 $('#ff').onblur=e=>{if(!e.target.value)e.target.value=e.target.dataset.o||''};
-$('#ff').onchange=e=>{if(isTi()&&e.target.value)track(sel,()=>{sel.style.letterSpacing='';sel.dataset.fam=e.target.value;delete sel.dataset.emb;sel.style.fontFamily=`"${e.target.value}",sans-serif,"Noto Sans Bengali","Nirmala UI"`;mark(sel)})};
+$('#ff').onchange=e=>{if(isTi()&&e.target.value)track(sel,()=>{sel.style.letterSpacing='';sel.dataset.fam=e.target.value;sel.dataset.lat=e.target.value;delete sel.dataset.emb;sel.style.fontFamily=`"${e.target.value}",sans-serif,"Noto Sans Bengali","Nirmala UI"`;mark(sel)})};
 $('#fz').oninput=e=>{if(isTi()&&+e.target.value>0)track(sel,()=>{sel.style.letterSpacing='';sel.style.fontSize=e.target.value*SC+'px';mark(sel)})};
 $('#b').onclick=()=>{if(isTi())track(sel,()=>{sel.style.fontWeight=sel.style.fontWeight==='700'?'400':'700';mark(sel)})};
 $('#i').onclick=()=>{if(isTi())track(sel,()=>{sel.style.fontStyle=sel.style.fontStyle==='italic'?'normal':'italic';mark(sel)})};
@@ -306,95 +345,173 @@ document.addEventListener('pointerdown',e=>{
   addEventListener('pointermove',mv);addEventListener('pointerup',up);
  }
 });
-function cutRegion(w,x,y,ww,hh){
- const c=w._c,t=cvs(ww,hh);t.getContext('2d').drawImage(c,x,y,ww,hh,0,0,ww,hh);
+async function cutRegion(w,x,y,ww,hh){
+ let url=null;
+ try{if(w._live){const pg=w._pg,vp=w._vp,HS=Math.min(3,3800/(vp.width/SC),3800/(vp.height/SC)),f=HS/SC;setOps(w);
+  const t=cvs(Math.max(1,Math.round(ww*f)),Math.max(1,Math.round(hh*f)));
+  await pg.render({canvasContext:t.getContext('2d'),viewport:pg.getViewport({scale:HS}),transform:[1,0,0,1,-x*f,-y*f]}).promise;url=t.toDataURL()}}catch(e){url=null}
+ const c=w._c;if(!url){const t=cvs(ww,hh);t.getContext('2d').drawImage(c,x,y,ww,hh,0,0,ww,hh);url=t.toDataURL()}
  const bg=px(c,x>4?x-3:x+ww+3,y+hh/2),cv=mk('div','cv');
  cv.style.cssText=`left:${x}px;top:${y}px;width:${ww}px;height:${hh}px;background:${bg}`;
  Object.assign(cv.dataset,{ox:x,oy:y,cw:ww,ch:hh,bg});w._ov.append(cv);
- const ob=mkOb(w._ov,t.toDataURL(),x,y,ww,hh);push(()=>{ob.remove();cv.remove()},()=>w._ov.append(cv,ob));
+ const ob=mkOb(w._ov,url,x,y,ww,hh);push(()=>{ob.remove();cv.remove()},()=>w._ov.append(cv,ob));
  document.querySelector('[data-t=edit]').click();
 }
 
-/* ---------- click any existing picture / shape ---------- */
-const inter=(a,b)=>{const r={x0:Math.max(a.x0,b.x0),y0:Math.max(a.y0,b.y0),x1:Math.min(a.x1,b.x1),y1:Math.min(a.y1,b.y1)};if(r.x1>r.x0&&r.y1>r.y0){r.ell=a.ell||b.ell;return r}return null};
+/* ---------- smart objects: shapes stay VECTOR, pictures keep NATIVE resolution, text is never merged in ---------- */
+const inter=(a,b)=>{const r={x0:Math.max(a.x0,b.x0),y0:Math.max(a.y0,b.y0),x1:Math.min(a.x1,b.x1),y1:Math.min(a.y1,b.y1)};if(r.x1>r.x0&&r.y1>r.y0)return r;return null};
 function liveList(pg,tk){const a=tk&&tk._internalRenderTask&&tk._internalRenderTask.operatorList;if(a&&a.fnArray)return a;
  try{for(const st of pg._intentStates.values())if(st.displayReadyCapability&&st.operatorList&&st.operatorList.fnArray)return st.operatorList}catch(e){}return null}
+const toHex=a=>!a?null:typeof a[0]==='string'?a[0]:hx(a[0],a[1],a[2]);
+const near=(h,t)=>{if(!h||h[0]!=='#')return false;return rgb(h).every(v=>v>=t)};
 async function scanObjects(w){
  const pg=w._pg,vp=w._vp,O=pdfjsLib.OPS,ol=w._ol||await pg.getOperatorList(),F=ol.fnArray,A=ol.argsArray,mul=pdfjsLib.Util.transform;
- w._ol=ol;w._F0=F.slice();w._dead=new Map();
- const fills=[O.fill,O.eoFill,O.fillStroke,O.eoFillStroke,O.closeFillStroke,O.closeEOFillStroke];
- const imgs=[O.paintImageXObject,O.paintInlineImageXObject,O.paintJpegXObject,O.paintImageMaskXObject,O.paintSolidColorImageMask];
+ w._ol=ol;w._F0=F.slice();w._dead=new Map();w._lifted=[];w._objs=[];
+ const fills=[O.fill,O.eoFill,O.fillStroke,O.eoFillStroke,O.closeFillStroke,O.closeEOFillStroke].filter(Boolean);
+ const strokes=[O.stroke,O.closeStroke,O.fillStroke,O.eoFillStroke,O.closeFillStroke,O.closeEOFillStroke].filter(Boolean);
+ const eos=[O.eoFill,O.eoFillStroke,O.closeEOFillStroke].filter(Boolean);
+ const imgs=[O.paintImageXObject,O.paintInlineImageXObject,O.paintJpegXObject,O.paintImageMaskXObject,O.paintSolidColorImageMask,O.paintImageXObjectRepeat,O.paintImageMaskXObjectGroup,O.paintImageMaskXObjectRepeat].filter(Boolean);
+ const masks=[O.paintImageMaskXObject,O.paintSolidColorImageMask,O.paintImageMaskXObjectGroup,O.paintImageMaskXObjectRepeat].filter(Boolean);
  w._fl=new Set([...fills,O.stroke,O.closeStroke].filter(Boolean));
- w._pt=new Set([...imgs,O.showText,O.showSpacedText,O.nextLineShowText,O.nextLineSetSpacingShowText,O.shadingFill,O.paintImageXObjectRepeat,O.paintImageMaskXObjectGroup,O.paintImageMaskXObjectRepeat].filter(Boolean));
- let m=[1,0,0,1,0,0],c=null,pb=null;const st=[],objs=[];
- const bb=(M,ps,b)=>{const T=mul(vp.transform,M);for(const p of ps){const X=T[0]*p[0]+T[2]*p[1]+T[4],Y=T[1]*p[0]+T[3]*p[1]+T[5];
-  b=b?{x0:Math.min(b.x0,X),y0:Math.min(b.y0,Y),x1:Math.max(b.x1,X),y1:Math.max(b.y1,Y)}:{x0:X,y0:Y,x1:X,y1:Y}}return b};
- const add=(k,i,b)=>{if(b&&c)b=inter(b,c);if(b)objs.push({k,i,b})};
+ w._pt=new Set([...imgs,O.showText,O.showSpacedText,O.nextLineShowText,O.nextLineSetSpacingShowText,O.shadingFill].filter(Boolean));
+ let m=[1,0,0,1,0,0],c=null,fc=null,sc=null,lw=1,fa=1,sa=1,cmds=[],cur=[0,0];const st=[],objs=[];
+ const push=()=>st.push([m,c,fc,sc,lw,fa,sa]),pop=()=>{const s=st.pop();if(s){m=s[0];c=s[1];fc=s[2];sc=s[3];lw=s[4];fa=s[5];sa=s[6]}};
  for(let i=0;i<F.length;i++){const f=F[i],a=A[i];
-  if(f===O.save)st.push([m,c]);
-  else if(f===O.restore){const s=st.pop();if(s){m=s[0];c=s[1]}}
+  if(f===O.save)push();
+  else if(f===O.restore)pop();
   else if(f===O.transform)m=mul(m,a);
-  else if(f===O.paintFormXObjectBegin){st.push([m,c]);if(a[0])m=mul(m,a[0])}
-  else if(f===O.beginGroup){st.push([m,c]);if(a[0]&&a[0].matrix)m=mul(m,a[0].matrix)}
-  else if(f===O.paintFormXObjectEnd||f===O.endGroup){const s=st.pop();if(s){m=s[0];c=s[1]}}
-  else if(f===O.constructPath){const q=a[1],pp=[];let j=0;
-   for(const o of a[0]){
-    if(o===O.moveTo||o===O.lineTo){pp.push([q[j],q[j+1]]);j+=2}
-    else if(o===O.curveTo){pp.push([q[j],q[j+1]],[q[j+2],q[j+3]],[q[j+4],q[j+5]]);j+=6}
-    else if(o===O.curveTo2||o===O.curveTo3){pp.push([q[j],q[j+1]],[q[j+2],q[j+3]]);j+=4}
-    else if(o===O.rectangle){pp.push([q[j],q[j+1]],[q[j]+q[j+2],q[j+1]+q[j+3]]);j+=4}}
-   if(pp.length){const first=!pb;pb=bb(m,pp,pb);const ops=a[0];pb.ell=first&&ops.filter(o=>o===O.curveTo).length>=4&&!ops.some(o=>o===O.lineTo||o===O.rectangle)?1:0}}
-  else if(f===O.clip||f===O.eoClip){if(pb)c=c?(inter(c,pb)||{x0:0,y0:0,x1:0,y1:0}):pb}
-  else if(fills.includes(f)){add('p',i,pb);pb=null}
-  else if(f===O.stroke||f===O.closeStroke||f===O.endPath)pb=null;
-  else if(imgs.includes(f))add('i',i,bb(m,[[0,0],[1,0],[0,1],[1,1]],null));
+  else if(f===O.paintFormXObjectBegin){push();if(a[0])m=mul(m,a[0]);if(a[1]){const T=mul(vp.transform,m),B=a[1],P=[[B[0],B[1]],[B[2],B[1]],[B[2],B[3]],[B[0],B[3]]].map(p=>[T[0]*p[0]+T[2]*p[1]+T[4],T[1]*p[0]+T[3]*p[1]+T[5]]),
+    bx={x0:Math.min(...P.map(p=>p[0])),y0:Math.min(...P.map(p=>p[1])),x1:Math.max(...P.map(p=>p[0])),y1:Math.max(...P.map(p=>p[1]))};c=c?(inter(c,bx)||{x0:0,y0:0,x1:0,y1:0}):bx}}
+  else if(f===O.beginGroup){push();if(a[0]&&a[0].matrix)m=mul(m,a[0].matrix)}
+  else if(f===O.paintFormXObjectEnd||f===O.endGroup)pop();
+  else if(f===O.setLineWidth)lw=a[0];
+  else if(f===O.setFillRGBColor)fc=toHex(a);
+  else if(f===O.setStrokeRGBColor)sc=toHex(a);
+  else if(f===O.setFillGray&&a)fc=hx(a[0]*255,a[0]*255,a[0]*255);
+  else if(f===O.setStrokeGray&&a)sc=hx(a[0]*255,a[0]*255,a[0]*255);
+  else if(f===O.setFillColorN||f===O.setFillColor||f===O.setFillColorSpace)fc=null;
+  else if(f===O.setStrokeColorN||f===O.setStrokeColor||f===O.setStrokeColorSpace)sc=null;
+  else if(f===O.setGState){for(const kv of a[0]||[]){if(kv[0]==='ca')fa=kv[1];else if(kv[0]==='CA')sa=kv[1];else if(kv[0]==='LW')lw=kv[1]}}
+  else if(f===O.constructPath){
+   const T=mul(vp.transform,m),P=(x,y)=>[T[0]*x+T[2]*y+T[4],T[1]*x+T[3]*y+T[5]];
+   const ops=Array.isArray(a[0])?a[0]:[],q=a[1]||[];let j=0;
+   for(const o of ops){
+    if(o===O.moveTo){cur=P(q[j],q[j+1]);cmds.push(['M',...cur]);j+=2}
+    else if(o===O.lineTo){cur=P(q[j],q[j+1]);cmds.push(['L',...cur]);j+=2}
+    else if(o===O.curveTo){const p1=P(q[j],q[j+1]),p2=P(q[j+2],q[j+3]),p3=P(q[j+4],q[j+5]);cmds.push(['C',...p1,...p2,...p3]);cur=p3;j+=6}
+    else if(o===O.curveTo2){const p2=P(q[j],q[j+1]),p3=P(q[j+2],q[j+3]);cmds.push(['C',...cur,...p2,...p3]);cur=p3;j+=4}
+    else if(o===O.curveTo3){const p1=P(q[j],q[j+1]),p3=P(q[j+2],q[j+3]);cmds.push(['C',...p1,...p3,...p3]);cur=p3;j+=4}
+    else if(o===O.closePath)cmds.push(['Z']);
+    else if(o===O.rectangle){const x=q[j],y=q[j+1],ww=q[j+2],hh=q[j+3],p0=P(x,y),p1=P(x+ww,y),p2=P(x+ww,y+hh),p3=P(x,y+hh);cmds.push(['M',...p0],['L',...p1],['L',...p2],['L',...p3],['Z']);cur=p0;j+=4}}}
+  else if(f===O.clip||f===O.eoClip){if(cmds.length){const b=G.bbox(cmds);c=c?(inter(c,b)||{x0:0,y0:0,x1:0,y1:0}):b}}
+  else if(f===O.endPath)cmds=[];
+  else if(fills.includes(f)||f===O.stroke||f===O.closeStroke){
+   if(cmds.length){const isF=fills.includes(f),isS=strokes.includes(f),T=mul(vp.transform,m),hw=isS?lw*Math.hypot(T[0],T[1])/2:0,pb=G.bbox(cmds);
+    const rb={x0:pb.x0-hw,y0:pb.y0-hw,x1:pb.x1+hw,y1:pb.y1+hw},vb=c?inter(rb,c):rb;
+    if(vb)objs.push({k:'p',i,b:vb,rb,cmds,fill:isF?(fc||'?'):null,stroke:isS?(sc||'#000000'):null,lw:isS?lw*Math.hypot(T[0],T[1]):0,alpha:isF?fa:sa,eo:eos.includes(f),type:G.classify(cmds).type})}
+   cmds=[]}
+  else if(imgs.includes(f)){const T=mul(vp.transform,m),P=[[0,0],[1,0],[0,1],[1,1]].map(p=>[T[0]*p[0]+T[2]*p[1]+T[4],T[1]*p[0]+T[3]*p[1]+T[5]]),
+    rb={x0:Math.min(...P.map(p=>p[0])),y0:Math.min(...P.map(p=>p[1])),x1:Math.max(...P.map(p=>p[0])),y1:Math.max(...P.map(p=>p[1]))},vb=c?inter(rb,c):rb;
+   if(vb)objs.push({k:'i',i,b:vb,rb,T,name:typeof a[0]==='string'?a[0]:'',data:a&&a[0]&&typeof a[0]==='object'?a[0]:null,mask:masks.includes(f),fill:fc,clipped:!!c&&(vb.x1-vb.x0<(rb.x1-rb.x0)-2||vb.y1-vb.y0<(rb.y1-rb.y0)-2)})}
  }
  const W=vp.width,H=vp.height;
- objs.filter(o=>{const bw=o.b.x1-o.b.x0,bh=o.b.y1-o.b.y0;return isFinite(bw+bh)&&bw>=8&&bh>=8&&!(bw>W*.95&&bh>H*.95)}).slice(-500).forEach(o=>{
-  const h=mk('div','hit');h.style.cssText=`left:${o.b.x0}px;top:${o.b.y0}px;width:${o.b.x1-o.b.x0}px;height:${o.b.y1-o.b.y0}px${o.b.ell?';border-radius:50%':''}`;
-  h.title='Click to move / rotate / resize';
+ objs.filter(o=>{const bw=o.b.x1-o.b.x0,bh=o.b.y1-o.b.y0;
+  if(!isFinite(bw+bh)||bw<3||bh<3||Math.max(bw,bh)<10)return false;
+  if(bw>W*.92&&bh>H*.92)return false;
+  if(o.k==='p'&&!o.fill&&!o.stroke)return false;
+  if(o.k==='p'&&!o.stroke&&near(o.fill,246))return false;
+  if(o.k==='p'&&!o.fill&&o.lw<1.2&&(bw<4||bh<4))return false;
+  return true}).slice(-600).forEach(o=>{
+  const h=mk('div','hit');h.style.cssText=`left:${o.b.x0}px;top:${o.b.y0}px;width:${o.b.x1-o.b.x0}px;height:${o.b.y1-o.b.y0}px${o.type==='ellipse'?';border-radius:50%':''}`;
+  h.title=o.k==='p'?'Shape — click to move / resize / recolour':'Picture — click to move / rotate / resize';o.h=h;
   h.addEventListener('pointerdown',e=>{if(tool!=='edit')return;e.preventDefault();cur=w;lift(w,o,h)});
-  w._ov.append(h)});
+  w._objs.push(o);w._ov.append(h)});
 }
-function setOps(w,iso){const F=w._ol.fnArray,F0=w._F0,O=pdfjsLib.OPS;
+/* which pdf.js operators to draw. rg={lo,hi}: only paint ops strictly between lo and hi; dead (lifted) ones never */
+function setOps(w,rg){const F=w._ol.fnArray,F0=w._F0,O=pdfjsLib.OPS;
  for(let i=0;i<F0.length;i++){let f=F0[i];
-  if(iso!==undefined){if(i!==iso){if(w._fl.has(f))f=O.endPath;else if(w._pt.has(f))f=O.setFlatness}}
-  else if(w._dead.has(i))f=w._dead.get(i)==='i'?O.setFlatness:O.endPath;
+  if(w._dead.has(i))f=w._dead.get(i)==='i'?O.setFlatness:O.endPath;
+  else if(rg&&(i<=rg.lo||i>=rg.hi)){if(w._fl.has(f))f=O.endPath;else if(w._pt.has(f))f=O.setFlatness}
   F[i]=f}}
 let busy=false;
-const rend=async(pg,vp,tr)=>{const c=cvs(vp.width,vp.height);await pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp,background:tr?'rgba(0,0,0,0)':undefined}).promise;return c};
+const rend=async(pg,vp,tr,tf)=>{const c=cvs(Math.ceil(vp.width),Math.ceil(vp.height));await pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp,transform:tf,background:tr?'rgba(0,0,0,0)':undefined}).promise;return c};
+/* rebuild the stacking layers: page content below / between / above every lifted object, so z-order stays exact */
+async function relayer(w){
+ const pg=w._pg,vp=w._vp,L=[...w._lifted].sort((a,b)=>a.o.i-b.o.i),ids=L.map(l=>l.o.i);
+ (w._sl||[]).forEach(c=>c.remove());w._sl=[];
+ const g=w._c.getContext('2d');
+ for(let k=0;k<=ids.length;k++){
+  setOps(w,{lo:k?ids[k-1]:-1,hi:k<ids.length?ids[k]:1e9});
+  const cv=await rend(pg,vp,k>0);
+  if(k===0)g.clearRect(0,0,w._c.width,w._c.height);
+  g.drawImage(cv,0,0);
+  if(ids.length){cv.className='sl';cv.style.zIndex=2*k+1;w.insertBefore(cv,w._ov);w._sl.push(cv)}}
+ setOps(w);
+ L.forEach((l,k)=>{l.ob.style.zIndex=2*k+2});
+ w._c.style.visibility=ids.length?'hidden':'visible'}
+/* picture at its native resolution (falls back to a high-res isolated render) */
+async function nativeImage(w,o){
+ try{if(o.mask||o.clipped)return null;const T=o.T;if(!T||T[3]>=0||Math.abs(T[0]*T[2]+T[1]*T[3])>.02*Math.hypot(T[0],T[1])*Math.hypot(T[2],T[3]))return null;
+  let img=o.data;
+  if(!img&&o.name){const pool=/^g_/.test(o.name)?w._pg.commonObjs:w._pg.objs;
+   img=await new Promise(res=>{const to=setTimeout(()=>res(null),2000);try{pool.get(o.name,d=>{clearTimeout(to);res(d)})}catch(e){clearTimeout(to);res(null)}})}
+  if(!img)return null;const cv=cvs(img.width,img.height),g=cv.getContext('2d');
+  if(img.bitmap)g.drawImage(img.bitmap,0,0);
+  else if(img.data&&img.kind){const n=img.width*img.height,id=g.createImageData(img.width,img.height),d=id.data,s=img.data;
+   if(img.kind===3&&s.length>=n*4)d.set(s.subarray(0,n*4));
+   else if(img.kind===2&&s.length>=n*3)for(let p=0,q=0;p<n;p++,q+=3){d[p*4]=s[q];d[p*4+1]=s[q+1];d[p*4+2]=s[q+2];d[p*4+3]=255}
+   else if(img.kind===1){const rb=(img.width+7)>>3;for(let y=0;y<img.height;y++)for(let x=0;x<img.width;x++){const v=(s[y*rb+(x>>3)]>>(7-(x&7)))&1?255:0,p=(y*img.width+x)*4;d[p]=d[p+1]=d[p+2]=v;d[p+3]=255}}
+   else return null;g.putImageData(id,0,0)}
+  else return null;
+  const rot=Math.atan2(T[1],T[0])*180/Math.PI;return{cv,rot,w:Math.hypot(T[0],T[1]),h:Math.hypot(T[2],T[3]),cx:T[4]+(T[0]+T[2])/2,cy:T[5]+(T[1]+T[3])/2}
+ }catch(e){return null}}
+async function isoImage(w,o,x,y,ww,hh){
+ const pg=w._pg,vp=w._vp,HS=Math.min(4,3800/(vp.width/SC),3800/(vp.height/SC)),f=HS/SC;
+ setOps(w,{lo:o.i-1,hi:o.i+1});
+ const I=await rend(pg,pg.getViewport({scale:HS}),true);setOps(w);
+ const out=cvs(Math.max(1,Math.round(ww*f)),Math.max(1,Math.round(hh*f)));out.getContext('2d').drawImage(I,Math.round(x*f),Math.round(y*f),out.width,out.height,0,0,out.width,out.height);return out}
+function domCol(c,b){const x=b.x0,y=b.y0,w=b.x1-b.x0,h=b.y1-b.y0;return modeCol(c,x+w*.2,y+h*.2,w*.6,h*.6)}
 async function lift(w,o,hit){
  if(busy)return;busy=true;document.body.style.cursor='progress';
  try{
-  if(!w._live)throw 0;const pg=w._pg,vp=w._vp,HS=Math.min(3,3800/(vp.width/SC),3800/(vp.height/SC)),f=HS/SC,v3=pg.getViewport({scale:HS});
-  setOps(w);if(!w._cur3)w._cur3=await rend(pg,v3);
-  const A=w._cur3,d0=cvs(w._c.width,w._c.height);d0.getContext('2d').drawImage(w._c,0,0);
-  w._dead.set(o.i,o.k);setOps(w);const B=await rend(pg,v3);
-  setOps(w,o.i);const I=await rend(pg,v3,1);setOps(w);
-  const D=await rend(pg,vp);
-  const x=Math.max(0,Math.floor(o.b.x0)),y=Math.max(0,Math.floor(o.b.y0)),ww=Math.min(w._c.width,Math.ceil(o.b.x1))-x,hh=Math.min(w._c.height,Math.ceil(o.b.y1))-y;
-  const sx=Math.round(x*f),sy=Math.round(y*f),sw=Math.min(B.width-sx,Math.round(ww*f)),sh=Math.min(B.height-sy,Math.round(hh*f)),n=sw*sh;
-  const gi=I.getContext('2d').getImageData(sx,sy,sw,sh);let cnt=0;for(let p=3;p<gi.data.length;p+=4)if(gi.data[p]>8)cnt++;
-  if(cnt<20)throw 0;
-  const ga=A.getContext('2d').getImageData(sx,sy,sw,sh),gb=B.getContext('2d').getImageData(sx,sy,sw,sh),da=ga.data,db=gb.data;let m=new Uint8Array(n),dc=0;
-  for(let p=0;p<n;p++){const q=p*4;if(Math.abs(da[q]-db[q])+Math.abs(da[q+1]-db[q+1])+Math.abs(da[q+2]-db[q+2])>10){m[p]=1;dc++}}
-  if(dc<20)throw 0;
-  for(let t=0;t<2;t++){const m2=m.slice();for(let p=0;p<n;p++)if(m[p]){const c=p%sw;if(c>0)m2[p-1]=1;if(c<sw-1)m2[p+1]=1;if(p>=sw)m2[p-sw]=1;if(p<n-sw)m2[p+sw]=1}m=m2}
-  for(let p=0;p<n;p++)db[p*4+3]=m[p]?255:0;
-  const pc=cvs(sw,sh);pc.getContext('2d').putImageData(gb,0,0);
-  const oc=cvs(sw,sh);oc.getContext('2d').putImageData(gi,0,0);
-  const L={x,y,ww,hh,url:pc.toDataURL()},prev=w._cur3;w._lifts.push(L);w._cur3=B;
-  w._c.getContext('2d').drawImage(D,0,0);
-  const d1=cvs(D.width,D.height);d1.getContext('2d').drawImage(D,0,0);
-  hit.remove();const ob=mkOb(w._ov,oc.toDataURL(),x,y,ww,hh,'lf');
-  push(()=>{ob.remove();w._lifts.splice(w._lifts.indexOf(L),1);w._dead.delete(o.i);setOps(w);w._cur3=prev;w._c.getContext('2d').drawImage(d0,0,0);w._ov.append(hit)},
-   ()=>{w._ov.append(ob);w._lifts.push(L);w._dead.set(o.i,o.k);setOps(w);w._cur3=B;w._c.getContext('2d').drawImage(d1,0,0);hit.remove()});
+  if(!w._live)throw 0;
+  const b=o.b,x=Math.floor(b.x0),y=Math.floor(b.y0),ww=Math.max(1,Math.ceil(b.x1)-x),hh=Math.max(1,Math.ceil(b.y1)-y);let ob;
+  if(o.k==='p'){
+   let fill=o.fill;if(fill==='?')fill=domCol(w._c,b);
+   const rel=o.cmds.map(c=>c.map((v,i)=>i?v-(i%2?x:y):v)),sh={w:ww,h:hh,cmds:rel,d:G.toSvg(o.cmds,x,y),fill,stroke:o.stroke,lw:o.lw,alpha:o.alpha,eo:o.eo,type:o.type};
+   ob=mkOb(w._ov,null,x,y,ww,hh,'lf',sh)}
+  else{
+   const ni=await nativeImage(w,o);
+   if(ni){ob=mkOb(w._ov,ni.cv.toDataURL(),ni.cx-ni.w/2,ni.cy-ni.h/2,ni.w,ni.h,'lf',null,ni.rot)}
+   else{const cv=await isoImage(w,o,x,y,ww,hh);ob=mkOb(w._ov,cv.toDataURL(),x,y,ww,hh,'lf')}}
+  const Lf={o,ob,hit};w._lifted.push(Lf);w._dead.set(o.i,o.k);
+  await relayer(w);hit.remove();select(ob);
+  push(()=>{ob.remove();w._lifted.splice(w._lifted.indexOf(Lf),1);w._dead.delete(o.i);relayer(w);w._ov.append(hit)},
+       ()=>{w._ov.append(ob);w._lifted.push(Lf);w._dead.set(o.i,o.k);relayer(w);hit.remove()});
+  ST.bump('lifted');
  }catch(err){
   w._dead.delete(o.i);try{setOps(w)}catch(x){}hit.remove();const b=o.b;
-  try{cutRegion(w,Math.max(0,b.x0),Math.max(0,b.y0),b.x1-b.x0,b.y1-b.y0)}catch(x){}
+  try{await cutRegion(w,Math.max(0,b.x0),Math.max(0,b.y0),b.x1-b.x0,b.y1-b.y0)}catch(x){}
  }
  busy=false;document.body.style.cursor='';
 }
+/* double-click a solid-colour area: find the matching PDF shape by colour+size, otherwise grab the pixels */
+async function wand(w,x,y){
+ const c=w._c,W=c.width,H=c.height,d=c.getContext('2d').getImageData(0,0,W,H).data,px0=Math.min(W-1,x|0),py0=Math.min(H-1,y|0);
+ const f=G.flood(d,W,H,px0,py0,36);if(f.area<60||f.area>W*H*.6)return false;
+ const fb={x0:f.x0,y0:f.y0,x1:f.x1,y1:f.y1},ia=(a,b)=>{const i=inter(a,b);if(!i)return 0;const A=(i.x1-i.x0)*(i.y1-i.y0);return A/((a.x1-a.x0)*(a.y1-a.y0)+(b.x1-b.x0)*(b.y1-b.y0)-A)};
+ let best=null,bs=.55;for(const o of w._objs)if(o.h&&o.h.isConnected&&o.k==='p'){const s=ia(fb,o.b);if(s>bs){bs=s;best=o}}
+ if(best){await lift(w,best,best.h);return true}
+ await cutRegion(w,f.x0,f.y0,f.x1-f.x0,f.y1-f.y0);return true}
+
+/* shape toolbar */
+const isSh=()=>sel&&sel.classList.contains('sh');
+$('#shf').oninput=e=>{if(isSh())track(sel,()=>{sel.dataset.fill=e.target.value;applyShape(sel)})};
+$('#shn').onclick=()=>{if(isSh())track(sel,()=>{sel.dataset.fill=sel.dataset.fill?'':$('#shf').value;applyShape(sel)})};
+$('#shs').oninput=e=>{if(isSh())track(sel,()=>{sel.dataset.stroke=e.target.value;if(!+sel.dataset.lw)sel.dataset.lw=1;$('#shw').value=sel.dataset.lw;applyShape(sel)})};
+$('#shw').oninput=e=>{if(isSh()&&+e.target.value>=0)track(sel,()=>{sel.dataset.lw=e.target.value;if(!sel.dataset.stroke)sel.dataset.stroke='#000000';applyShape(sel)})};
+document.addEventListener('dblclick',e=>{const ov=e.target.closest&&e.target.closest('.ov');if(!ov||e.target!==ov||tool!=='edit'||busy)return;
+ const w=ov.parentNode,r=ov.getBoundingClientRect();wand(w,(e.clientX-r.left)/Z,(e.clientY-r.top)/Z)});
 
 /* ---------- images & signature ---------- */
 $('#img').onclick=()=>$('#fi').click();
@@ -406,10 +523,16 @@ async function addImage(f){
  const w=cur||document.querySelector('.pg');if(!w)return alert('Open a PDF first');
  const dw=Math.min(220,c.width),ob=mkOb(w._ov,c.toDataURL(),60,60,dw,dw*c.height/c.width);push(()=>ob.remove(),()=>w._ov.append(ob));
 };
-function mkOb(ov,url,x,y,w,h,cls){
- const o=mk('div','ob'+(cls?' '+cls:'')),im=new Image(),rs=mk('i','rs'),ro=mk('i','ro');ro.textContent='↻';ro.title='Drag to rotate (hold Shift = snap 15°)';
- o.dataset.orig=o.dataset.cur=url;im.src=url;im.draggable=false;o.append(im,rs,ro);
+function applyShape(o){const d=o.dataset,p=o.querySelector('path');if(!p)return;
+ p.setAttribute('fill',d.fill||'none');p.setAttribute('stroke',d.stroke&&+d.lw>0?d.stroke:'none');p.setAttribute('stroke-width',+d.lw||0);
+ p.setAttribute('fill-rule',o._sh&&o._sh.eo?'evenodd':'nonzero');o.querySelector('svg').style.opacity=+d.alpha<1?d.alpha:1}
+function mkOb(ov,url,x,y,w,h,cls,sh,rot){
+ const o=mk('div','ob'+(sh?' sh':'')+(cls?' '+cls:'')),rs=mk('i','rs'),ro=mk('i','ro');ro.textContent='↻';ro.title='Drag to rotate (hold Shift = snap 15°)';
+ if(sh){o._sh=sh;Object.assign(o.dataset,{fill:sh.fill||'',stroke:sh.stroke||'',lw:+(sh.lw||0).toFixed(2),alpha:sh.alpha==null?1:sh.alpha});
+  o.innerHTML=`<svg viewBox="0 0 ${sh.w} ${sh.h}" preserveAspectRatio="none"><path d="${sh.d}"/></svg>`;o.append(rs,ro);applyShape(o);o.title='Vector shape — text on it stays separate and editable'}
+ else{const im=new Image();o.dataset.orig=o.dataset.cur=url;im.src=url;im.draggable=false;o.append(im,rs,ro)}
  o.style.cssText=`left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+ if(rot){o.dataset.rot=rot;o.style.transform=`rotate(${rot}deg)`}
  const run=mv=>{const a=snap(o),up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);const b=snap(o);if(JSON.stringify(a)!==JSON.stringify(b))push(()=>put(o,a),()=>put(o,b))};
   addEventListener('pointermove',mv);addEventListener('pointerup',up)};
  o.addEventListener('pointerdown',e=>{cur=ov.parentNode;select(o);
@@ -417,8 +540,9 @@ function mkOb(ov,url,x,y,w,h,cls){
    return run(v=>{let a=Math.atan2(v.clientY-cy,v.clientX-cx)*180/Math.PI+90;if(v.shiftKey)a=Math.round(a/15)*15;o.dataset.rot=a;o.style.transform=`rotate(${a}deg)`})}
   if(e.target!==rs)return drag(e,o);
   e.preventDefault();e.stopPropagation();const sx=e.clientX,sy=e.clientY,w0=o.offsetWidth,h0=o.offsetHeight,t=(+o.dataset.rot||0)*Math.PI/180;
-  run(v=>{const nw=Math.max(16,w0+((v.clientX-sx)*Math.cos(t)+(v.clientY-sy)*Math.sin(t))/Z);o.style.width=nw+'px';o.style.height=nw*h0/w0+'px'})});
- ov.append(o);select(o);calcBg(o,url);return o}
+  run(v=>{const dx=(v.clientX-sx)/Z,dy=(v.clientY-sy)/Z,ax=dx*Math.cos(t)+dy*Math.sin(t),ay=-dx*Math.sin(t)+dy*Math.cos(t);
+   const nw=Math.max(8,w0+ax);o.style.width=nw+'px';o.style.height=(sh&&!v.shiftKey?Math.max(8,h0+ay):nw*h0/w0)+'px'})});
+ ov.append(o);select(o);if(!sh)calcBg(o,url);return o}
 async function calcBg(o,url){const i=await loadImg(url),c=cvs(i.width,i.height),g=c.getContext('2d');g.drawImage(i,0,0);
  const p=[[0,0],[i.width-1,0],[0,i.height-1],[i.width-1,i.height-1]].map(q=>g.getImageData(q[0],q[1],1,1).data);
  o.dataset.bg=hx(...[0,1,2].map(k=>p.reduce((s,d)=>s+d[k],0)/4));if(sel===o)$('#bgc').value=o.dataset.bg}
@@ -434,43 +558,117 @@ $('#rm').onclick=async()=>{
 $('#rs').onclick=()=>{if(sel&&sel.classList.contains('ob'))track(sel,()=>{sel.dataset.cur=sel.dataset.orig;sel.querySelector('img').src=sel.dataset.orig})};
 
 /* ---------- save ---------- */
+const f4=PO.f4;
+function baselineOf(e){const sp=document.createElement('span');sp.style.cssText='display:inline-block;width:0;height:0;vertical-align:baseline';
+ e.insertBefore(sp,e.firstChild);const b=(sp.getBoundingClientRect().top-e.getBoundingClientRect().top)/Z;sp.remove();
+ return isFinite(b)&&b>0?b:parseFloat(getComputedStyle(e).fontSize)*.94}
+/* fallback: crisp 5x raster of the line (only used when vector outlines can't be trusted) */
 async function textPng(e){
- const cs=getComputedStyle(e),fs=parseFloat(cs.fontSize),S=3,L=e.innerText.replace(/\n$/,'').split('\n');
+ const cs=getComputedStyle(e),fs=parseFloat(cs.fontSize),S=5,L=e.innerText.replace(/\n$/,'').split('\n'),bl=baselineOf(e);
  const font=`${cs.fontStyle} ${cs.fontWeight} ${fs*S}px ${cs.fontFamily}`;
  try{await document.fonts.load(font,e.innerText)}catch(x){}
  const ls=cs.letterSpacing==='normal'?'0px':parseFloat(cs.letterSpacing)*S+'px',m=cvs(10,10).getContext('2d');m.font=font;m.letterSpacing=ls;
- const W=Math.ceil(Math.max(...L.map(s=>m.measureText(s).width))+6),H=Math.ceil((L.length*1.2+.3)*fs*S);
+ const W=Math.ceil(Math.max(...L.map(s=>m.measureText(s).width))+6*S),H=Math.ceil((L.length*1.2+.3)*fs*S);
  const c=cvs(W,H),g=c.getContext('2d');g.font=font;g.letterSpacing=ls;g.fillStyle=e.dataset.col||'#000';
- L.forEach((s,i)=>g.fillText(s,0,(i*1.2+.94)*fs*S));
+ L.forEach((s,i)=>g.fillText(s,0,(i*1.2*fs+bl)*S));
  return {url:c.toDataURL(),w:W/S,h:H/S};
 }
+/* vector text: shape every line with fontkit (GSUB/GPOS) and write glyph outlines -> sharp at any zoom, exact Bengali */
+const FKC=new Map();
+async function fkGet(fam,wt,it){
+ const k=fam+'|'+wt+'|'+it;if(FKC.has(k))return FKC.get(k);let f=null;
+ try{if(window.fontkit){const r=ST.bytesFor(fam,wt,it);let bytes=r&&r.bytes;
+  if(!bytes){const want=(wt>=600?'b':'')+(it?'i':''),q=LF.find(x=>x.family===fam&&sty(x.style)===want&&!/light|black|semi|cond|narrow|medium|thin|heavy/i.test(x.style));
+   if(q&&q.blob)bytes=new Uint8Array(await(await q.blob()).arrayBuffer())}
+  if(bytes){f=fontkit.create(bytes);if(f.fonts)f=null}}}catch(e){f=null}
+ FKC.set(k,f);return f}
+async function segsFor(line,fams,wt,it){
+ const fonts=[];for(const f of fams){const x=await fkGet(f,wt,it)||(wt>=600?await fkGet(f,400,it):null);if(x)fonts.push(x)}
+ if(!fonts.length)return null;const out=[];
+ for(const ch of Array.from(line)){const cp=ch.codePointAt(0);let fnt;
+  if(cp===0x200C||cp===0x200D)fnt=out.length?out[out.length-1].font:fonts[0];
+  else fnt=fonts.find(f=>{try{return f.hasGlyphForCodePoint(cp)}catch(e){return false}});
+  if(!fnt)return null;const l=out[out.length-1];if(l&&l.font===fnt)l.text+=ch;else out.push({font:fnt,text:ch})}
+ return out}
+function glyphCmds(segs,size,ls){const cmds=[];let pen=0;
+ for(const sg of segs){const run=sg.font.layout(sg.text),s=size/sg.font.unitsPerEm;
+  for(let i=0;i<run.glyphs.length;i++){const g=run.glyphs[i],p=run.positions[i];if(!g.id)throw new Error('notdef');
+   const ox=pen+(p.xOffset||0)*s,oy=(p.yOffset||0)*s;let cx=0,cy=0;const X=v=>ox+v*s,Y=v=>oy+v*s;
+   for(const c of g.path.commands){const a=c.args;
+    if(c.command==='moveTo'){cmds.push(['M',X(a[0]),Y(a[1])]);cx=a[0];cy=a[1]}
+    else if(c.command==='lineTo'){cmds.push(['L',X(a[0]),Y(a[1])]);cx=a[0];cy=a[1]}
+    else if(c.command==='quadraticCurveTo'){const q=G.quad(cx,cy,a[0],a[1],a[2],a[3]);cmds.push(['C',X(q[0]),Y(q[1]),X(q[2]),Y(q[3]),X(q[4]),Y(q[5])]);cx=a[2];cy=a[3]}
+    else if(c.command==='bezierCurveTo'){cmds.push(['C',X(a[0]),Y(a[1]),X(a[2]),Y(a[3]),X(a[4]),Y(a[5])]);cx=a[4];cy=a[5]}
+    else if(c.command==='closePath')cmds.push(['Z'])}
+   pen+=(p.xAdvance||0)*s+(ls||0)}}
+ return{cmds,adv:pen}}
+/* safety net: the outlines must look like what the browser draws for the same text, otherwise use the raster fallback */
+function guardOk(cmds,adv,txt,cs,fs,ls){
+ const S=2,w=Math.ceil(Math.max(adv,10)*S)+24,h=Math.ceil(fs*2.4*S),bx=10,by=fs*1.6*S;
+ const c1=cvs(w,h),g1=c1.getContext('2d',{willReadFrequently:true});g1.fillStyle='#fff';g1.fillRect(0,0,w,h);g1.fillStyle='#000';
+ g1.font=`${cs.fontStyle} ${cs.fontWeight} ${fs*S}px ${cs.fontFamily}`;if(ls)g1.letterSpacing=ls*S+'px';g1.fillText(txt,bx,by);
+ const c2=cvs(w,h),g2=c2.getContext('2d',{willReadFrequently:true});g2.fillStyle='#fff';g2.fillRect(0,0,w,h);g2.fillStyle='#000';
+ g2.fill(new Path2D(cmds.map(c=>c[0]==='Z'?'Z':c[0]+c.slice(1).map((v,i)=>i%2?(by-v*S):(v*S+bx)).join(' ')).join('')));
+ const A=BN.inkMask(g1.getImageData(0,0,w,h).data,w,h,[255,255,255],150),B=BN.inkMask(g2.getImageData(0,0,w,h).data,w,h,[255,255,255],150);
+ return BN.f1(A,B,w,h,2)>=.7}
+async function vecText(e,H,k,extra){
+ try{
+  if(!window.fontkit)return false;
+  const cs=getComputedStyle(e),fs=parseFloat(cs.fontSize),wt=+cs.fontWeight>=600?700:400,it=cs.fontStyle==='italic',L=e.innerText.replace(/\n$/,'').split('\n'),
+   ls=cs.letterSpacing==='normal'?0:(parseFloat(cs.letterSpacing)||0),bl=baselineOf(e),d=e.dataset;
+  let fams=[d.lat,d.bf,d.fam,...cs.fontFamily.split(',').map(x=>x.trim().replace(/^["']|["']$/g,''))].filter(f=>f&&!/^(sans-serif|serif|monospace|system-ui)$/.test(f));fams=[...new Set(fams)];
+  const[r,g,b]=rgb(d.col||'#000000');let out=`${f4(r/255)} ${f4(g/255)} ${f4(b/255)} rg\n`;
+  for(let i=0;i<L.length;i++){if(!L[i])continue;
+   let segs=await segsFor(L[i],fams,wt,it);
+   if(!segs){for(const f of['Noto Sans Bengali','Arimo','Hind Siliguri']){if(!ST.has(f))await ST.ensure(f);if(!fams.includes(f))fams.push(f)}segs=await segsFor(L[i],fams,wt,it)}
+   if(!segs)return false;
+   const{cmds,adv}=glyphCmds(segs,fs,ls);if(!guardOk(cmds,adv,L[i],cs,fs,ls))return false;
+   const x0=e.offsetLeft*k,y0=H-(e.offsetTop+i*1.2*fs+bl)*k;
+   out+=cmds.map(c=>c[0]==='Z'?'h':c[0]==='M'?`${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} m`:c[0]==='L'?`${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} l`:
+    `${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} ${f4(x0+c[3]*k)} ${f4(y0+c[4]*k)} ${f4(x0+c[5]*k)} ${f4(y0+c[6]*k)} c`).join('\n')+'\nf\n'}
+  extra.push(out);return true
+ }catch(err){return false}}
 async function drawReal(doc,pg,H,k,e,fm){
  try{if(e.dataset.emb)return false;const cs=getComputedStyle(e),txt=e.innerText.replace(/\n$/,'');
   if(/[\u0980-\u09FF]/.test(txt)||!LF.length||!window.fontkit)return false;
   if(cs.letterSpacing!=='normal'&&Math.abs(parseFloat(cs.letterSpacing))>.3)return false;
   const want=(+cs.fontWeight>=600?'b':'')+(cs.fontStyle==='italic'?'i':'');
   const fd=LF.find(x=>x.family===e.dataset.fam&&sty(x.style)===want&&!/light|black|semi|cond|narrow|medium|thin|heavy/i.test(x.style));
-  if(!fd)return false;
+  if(!fd||!fd.blob)return false;
   let f=fm.get(fd.postscriptName);
   if(!f){f=await doc.embedFont(await(await fd.blob()).arrayBuffer(),{subset:true});fm.set(fd.postscriptName,f)}
-  const fs=parseFloat(cs.fontSize),L=txt.split('\n');
+  const fs=parseFloat(cs.fontSize),L=txt.split('\n'),bl=baselineOf(e);
   L.forEach(s=>f.widthOfTextAtSize(s,10));
   const [r,g,b]=rgb(e.dataset.col||'#000000');
-  L.forEach((s,i)=>s&&pg.drawText(s,{x:e.offsetLeft*k,y:H-(e.offsetTop+(i*1.2+.94)*fs)*k,size:fs*k,font:f,color:PDFLib.rgb(r/255,g/255,b/255)}));
+  L.forEach((s,i)=>s&&pg.drawText(s,{x:e.offsetLeft*k,y:H-(e.offsetTop+i*1.2*fs+bl)*k,size:fs*k,font:f,color:PDFLib.rgb(r/255,g/255,b/255)}));
   return true}catch(x){return false}}
 const buf=async u=>(await fetch(u)).arrayBuffer();
 async function drawOb(doc,pg,H,k,e){const im=await doc.embedPng(await buf(e.dataset.cur));
  const ph=-(+e.dataset.rot||0)*Math.PI/180,w=e.offsetWidth*k,h=e.offsetHeight*k,cx=(e.offsetLeft+e.offsetWidth/2)*k,cy=H-(e.offsetTop+e.offsetHeight/2)*k,x0=-w/2,y0=-h/2;
  pg.drawImage(im,{x:cx+x0*Math.cos(ph)-y0*Math.sin(ph),y:cy+x0*Math.sin(ph)+y0*Math.cos(ph),width:w,height:h,rotate:PDFLib.degrees(ph*180/Math.PI)})}
+/* moved / resized / recoloured shapes and pictures: replaced in the PDF's own drawing instructions (original removed, same z-order) */
+async function applyLifted(doc,pg,w){
+ const Lf=w._lifted||[];if(!Lf.length)return;
+ const vp=w._vp,cv=(x,y)=>vp.convertToPdfPoint(x,y),p0=cv(0,0),p1=cv(1,0),p2=cv(0,1),Pu=[p1[0]-p0[0],p1[1]-p0[1],p2[0]-p0[0],p2[1]-p0[1],p0[0],p0[1]];
+ const ubb=b=>{const q=[cv(b.x0,b.y0),cv(b.x1,b.y0),cv(b.x1,b.y1),cv(b.x0,b.y1)];return{x0:Math.min(...q.map(a=>a[0])),y0:Math.min(...q.map(a=>a[1])),x1:Math.max(...q.map(a=>a[0])),y1:Math.max(...q.map(a=>a[1]))}};
+ const items=[];
+ for(const l of Lf){const e=l.ob,o=l.o,ub=ubb(o.rb),geo={cx:e.offsetLeft+e.offsetWidth/2,cy:e.offsetTop+e.offsetHeight/2,w:e.offsetWidth,h:e.offsetHeight,rot:+e.dataset.rot||0};
+  const un=rgb(domCol(w._c,o.b)).map(v=>f4(v/255)).join(' '),cover=`q ${un} rg ${f4(ub.x0)} ${f4(ub.y0)} ${f4(ub.x1-ub.x0)} ${f4(ub.y1-ub.y0)} re f Q`;
+  if(e.classList.contains('sh')){const S=e._sh,M=G.exportMatrix({...geo,sw:S.w,sh:S.h},Pu);let gs='';const a=+e.dataset.alpha;
+   if(a<1){try{gs=pg.node.newExtGState('GSa',doc.context.obj({Type:'ExtGState',ca:a,CA:a})).toString()}catch(x){}}
+   items.push({k:'p',rb:ub,M,cover,build:cm=>PO.shapeStr(S,e.dataset,{w:geo.w,h:geo.h},cm,gs)})}
+  else{const img=await doc.embedPng(await buf(e.dataset.cur)),nm=pg.node.newXObject('Img',img.ref).toString(),
+    M=G.mul([1,0,0,-1,0,1],G.exportMatrix({...geo,sw:1,sh:1},Pu));
+   items.push({k:'i',rb:ub,M,cover,build:cm=>PO.imageStr(nm,cm)})}}
+ PO.rebuild(PDFLib,doc,pg,items)}
 $('#save').onclick=async()=>{
  if(!bytes)return alert('Open a PDF first');
  const btn=$('#save');btn.textContent='Saving…';
  try{
   const doc=await PDFLib.PDFDocument.load(bytes,{ignoreEncryption:true}),P=doc.getPages(),k=1/SC,fm=new Map();if(window.fontkit)doc.registerFontkit(fontkit);
   for(const w of document.querySelectorAll('.pg')){
-   const pg=P[w._n-1],H=pg.getHeight();
-   for(const L of w._lifts||[]){const im=await doc.embedPng(await buf(L.url));
-    pg.drawImage(im,{x:L.x*k,y:H-(L.y+L.hh)*k,width:L.ww*k,height:L.hh*k})}
+   const pg=P[w._n-1],H=pg.getHeight(),extra=[];
+   await applyLifted(doc,pg,w);
    const ch=[...w._ov.children];
    for(const e of ch){const d=e.dataset;
     if(e.classList.contains('cv')||(e.classList.contains('ti')&&d.ed&&d.cw)){
@@ -478,13 +676,13 @@ $('#save').onclick=async()=>{
      pg.drawRectangle({x:(+d.ox-1)*k,y:H-(+d.oy+ +d.ch+1)*k,width:(+d.cw+2)*k,height:(+d.ch+2)*k,color:PDFLib.rgb(r/255,g/255,b/255),borderWidth:0});
     }
    }
-   for(const e of ch)if(e.classList.contains('lf'))await drawOb(doc,pg,H,k,e);
    for(const e of ch){
     if(e.classList.contains('ti')&&e.dataset.ed&&e.innerText.trim()){
-     if(!await drawReal(doc,pg,H,k,e,fm)){const t=await textPng(e),im=await doc.embedPng(await buf(t.url));
-     pg.drawImage(im,{x:e.offsetLeft*k,y:H-(e.offsetTop+t.h)*k,width:t.w*k,height:t.h*k});}
+     if(!await drawReal(doc,pg,H,k,e,fm)&&!await vecText(e,H,k,extra)){const t=await textPng(e),im=await doc.embedPng(await buf(t.url));
+      pg.drawImage(im,{x:e.offsetLeft*k,y:H-(e.offsetTop+t.h)*k,width:t.w*k,height:t.h*k});}
     }else if(e.classList.contains('ob')&&!e.classList.contains('lf'))await drawOb(doc,pg,H,k,e);
    }
+   PO.append(PDFLib,doc,pg,extra.join('\n'));
   }
   const out=await doc.save();
   if(window.api)await window.api.save(name,out);

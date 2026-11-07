@@ -1,12 +1,13 @@
 {
  "name": "pdf-editor",
- "version": "1.0.0",
+ "version": "1.1.0",
  "description": "Simple PDF Editor",
  "author": "PDF Editor",
  "main": "main.js",
  "scripts": {
   "start": "electron .",
-  "build": "electron-builder --win --publish never"
+  "build": "electron-builder --win --publish never",
+  "test": "node test/bn.test.js && node test/geom.test.js && node test/pdfops.test.js"
  },
  "dependencies": {
   "pdfjs-dist": "3.11.174",
