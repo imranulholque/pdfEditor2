@@ -35,6 +35,7 @@ input[type=number]{width:64px;cursor:text}
 .ob{position:absolute;z-index:60;cursor:move;touch-action:none}
 .sl{position:absolute;left:0;top:0;pointer-events:none;display:block}
 .ob.sh svg{width:100%;height:100%;display:block;pointer-events:none;overflow:hidden}.ob.sh path{vector-effect:non-scaling-stroke}
+#insp{position:fixed;z-index:999;background:#111c;color:#fff;font:12px/1.5 Consolas,monospace;padding:10px 12px;border-radius:8px;max-width:470px;white-space:pre-wrap;word-break:break-all;display:none;cursor:pointer}
 #shbox{display:none;align-items:center;gap:6px;padding:2px 8px;border:1px dashed var(--bd);border-radius:8px}
 .ob img{width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none}
 .ob.sel{outline:2px solid var(--ac)}
@@ -136,6 +137,7 @@ function fg(c,x,y,w,h,bg){const d=reg(c,x,y,w,h),[R,G,B]=rgb(bg);let b=-1,r=0,g=
 
 
 /* ---------- Bengali intelligence: repair glyph-order text + pick the best matching font by pixel comparison ---------- */
+const BNR=/[\u0980-\u09FF\u200c\u200d]/,BNM=/^[\u0981-\u0983\u09BC\u09BE-\u09CD\u09D7\u09E2\u09E3\u200c\u200d]+$/;
 const BNSYS=['Nirmala UI','Vrinda','Shonar Bangla','Kalpurush','SolaimanLipi','Nikosh','Siyam Rupali','Mukti','Lohit Bengali','Noto Sans Bengali','Noto Serif Bengali','Hind Siliguri'];
 const avail=f=>ST.has(f)||LF.some(x=>x.family===f);
 function origMask(c,r,fs){
@@ -169,7 +171,7 @@ $('#f').onchange=e=>e.target.files[0]&&openFile(e.target.files[0]);
 addEventListener('dragover',e=>e.preventDefault());
 function handleFiles(fl){for(const f of fl){if(/pdf/i.test(f.type+f.name))return openFile(f);if(/^image/.test(f.type)&&bytes)return addImage(f)}}
 addEventListener('drop',e=>{e.preventDefault();handleFiles(e.dataTransfer.files)});
-const UND=[],RED=[];let Z=1,clip=null,useEmb=true;
+let QS=2;const UND=[],RED=[];let Z=1,clip=null,useEmb=true;
 function push(u,r){UND.push({u,r});RED.length=0}
 function undo(){const a=UND.pop();if(a){a.u();RED.push(a);select(null)}}
 function redo(){const a=RED.pop();if(a){a.r();UND.push(a);select(null)}}
@@ -213,20 +215,21 @@ addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKe
 });
 async function openFile(f){name=f.name.replace(/\.pdf$/i,'')+'-edited.pdf';loadBytes(new Uint8Array(await f.arrayBuffer()))}
 async function loadBytes(b){
- bytes=b;await window.fontsReady;ST.bump('pdfs');used=new Map();UND.length=RED.length=0;clip=null;Z=1;$('#doc').style.transform='';
+ bytes=b;await window.fontsReady;ST.bump('pdfs');window._pre=1;used=new Map();UND.length=RED.length=0;clip=null;Z=1;$('#doc').style.transform='';
  $('#doc').innerHTML='<p>Loading…</p>';select(null);
- try{const pdf=await pdfjsLib.getDocument({data:bytes.slice()}).promise;$('#doc').innerHTML='';
+ try{const pdf=await pdfjsLib.getDocument({data:bytes.slice()}).promise;$('#doc').innerHTML='';QS=pdf.numPages>12?1.5:(devicePixelRatio>=1.5&&pdf.numPages<=6?3:2);
   for(let n=1;n<=pdf.numPages;n++)await renderPage(pdf,n);showFonts();setZoom(1);
  }catch(err){$('#doc').innerHTML='<p>Could not open this PDF: '+err.message+'</p>'}
 }
 async function renderPage(pdf,n){
- const pg=await pdf.getPage(n),vp=pg.getViewport({scale:SC});
+ const pg=await pdf.getPage(n),vp=pg.getViewport({scale:SC}),vh=pg.getViewport({scale:SC*QS});
  const w=mk('div','pg');w.style.width=vp.width+'px';w.style.height=vp.height+'px';
- const c=cvs(vp.width,vp.height);
- const tk=pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp});let ol=liveList(pg,tk);
- await tk.promise;const live=!!(ol||(ol=liveList(pg,tk)));
- const ov=mk('div','ov');w.append(c,ov);$('#doc').append(w);
- w._c=c;w._n=n;w._ov=ov;cur=cur||w;
+ const c=cvs(vp.width,vp.height),cg=c.getContext('2d',{willReadFrequently:true});   /* c = analysis canvas (layout pixels) */
+ const dc=cvs(vh.width,vh.height);dc.style.width=vp.width+'px';dc.style.height=vp.height+'px';   /* dc = what you see: rendered at 2-3x so it stays sharp */
+ const tk=pg.render({canvasContext:dc.getContext('2d'),viewport:vh});let ol=liveList(pg,tk);
+ await tk.promise;const live=!!(ol||(ol=liveList(pg,tk)));cg.drawImage(dc,0,0,c.width,c.height);
+ const ov=mk('div','ov');w.append(dc,ov);$('#doc').append(w);
+ w._c=c;w._d=dc;w._vh=vh;w._n=n;w._ov=ov;cur=cur||w;
  w.addEventListener('pointerdown',()=>cur=w,true);
  const tc=await pg.getTextContent(),runs=[],FI={};let rn=null;
  const finfo=id=>FI[id]||(FI[id]=(()=>{let nm='',ld='';try{const f=pg.commonObjs.get(id);nm=(f.name||'').replace(/^[A-Z]{6}\+/,'');ld=f.loadedName||''}catch(e){}
@@ -234,24 +237,26 @@ async function renderPage(pdf,n){
  for(const it of tc.items){
   const t=pdfjsLib.Util.transform(vp.transform,it.transform),fs=Math.hypot(t[0],t[1])||10,x=t[4],b=t[5],wd=it.width*SC,fi=finfo(it.fontName);
   if(!it.str.trim()){if(rn&&Math.abs(b-rn.b)<rn.fs*.25&&x>rn.x-.4*rn.fs&&x-(rn.x+rn.w)<1.2*rn.fs){if(it.str)rn.pend=true;rn.w=Math.max(rn.w,x+wd-rn.x)}continue}
-  const gap=rn?x-(rn.x+rn.w):0;
-  if(rn&&rn.b2===fi.w&&rn.i2===fi.i&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>-.4*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
-   if(rn.pend||gap>.18*rn.fs)rn.s+=' ';rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false;rn.cnt[it.fontName]=(rn.cnt[it.fontName]||0)+it.str.length}
-  else{rn={s:it.str,x,b,fs,w:wd,pend:false,b2:fi.w,i2:fi.i,cnt:{[it.fontName]:it.str.length}};runs.push(rn)}
+  const gap=rn?x-(rn.x+rn.w):0,oi={x:it.transform[4],y:it.transform[5]},len=!!rn&&BNR.test(it.str)&&BNR.test(rn.s),gmin=BNM.test(it.str)?-1.2:(len?-.9:-.4);
+  if(rn&&rn.b2===fi.w&&rn.i2===fi.i&&Math.abs(fs-rn.fs)<rn.fs*.08&&Math.abs(b-rn.b)<rn.fs*.25&&gap>gmin*rn.fs&&gap<1.2*rn.fs&&Math.abs(t[1])<.01*fs){
+   rn.items.push(oi);if(rn.pend||gap>(len?.3:.18)*rn.fs)rn.s+=' ';rn.s+=it.str;rn.w=Math.max(rn.w,x+wd-rn.x);rn.pend=false;rn.cnt[it.fontName]=(rn.cnt[it.fontName]||0)+it.str.length}
+  else{rn={s:it.str,x,b,fs,w:wd,pend:false,b2:fi.w,i2:fi.i,items:[oi],cnt:{[it.fontName]:it.str.length}};runs.push(rn)}
  }
  await Promise.all([...new Set(runs.map(r=>finfo(Object.keys(r.cnt).sort((p,q)=>r.cnt[q]-r.cnt[p])[0]).nm))].filter(n=>n&&!matchFont(n)).map(n=>webFont(n)));
  for(const r of runs){
   const fid=Object.keys(r.cnt).sort((p,q)=>r.cnt[q]-r.cnt[p])[0],fi=finfo(fid),fn=fi.nm,fs=r.fs,st=tc.styles[fid]||{},bn=/[\u0980-\u09FF]/.test(r.s);
   const fam=(fn.split(/[-,]/)[0]||'').replace(/(MT|PS)$/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
   const m=matchFont(fn)||WEB[fn]||null,pf=m||(bn?'Nirmala UI':fam);if(fn)used.set(fn,m);
-  let bf='',sc0=0;if(bn){try{const q=await chooseBn(c,r,fi,fn,fs,pf);r.s=q.text;bf=q.bf;sc0=q.sc}catch(err){}}
+  const raw=r.s;let bf='',sc0=0;if(bn){try{const q=await chooseBn(c,r,fi,fn,fs,pf);r.s=q.text;bf=q.bf;sc0=q.sc}catch(err){}}
   const x=r.x,y=r.b-fs*.94,cw=Math.max(r.w,4),ch=fs*1.2,gen=st.fontFamily||'sans-serif',emb=useEmb&&!bn?fi.ld:'';
   const stk=bn?`"${pf}",${bf?`"${bf}",`:''}"${fam}","${fn}","Nirmala UI","Noto Sans Bengali",${gen}`:`"${pf}","${fam}","${fn}",${gen},"Noto Sans Bengali","Nirmala UI"`;
   const e=mkTi(ov,{x,y,fs,txt:r.s,pf,fam:(emb?`"${emb}",`:'')+stk,b:fi.b,w:fi.w,i:fi.i});
   const bg=modeCol(c,x,y,cw,ch);Object.assign(e.dataset,{ox:x,oy:y,cw,ch,bg,col:fg(c,x,y,cw,ch,bg),stk,emb,bf,lat:pf,sc:sc0.toFixed(2)});
-  e.style.minWidth=cw+'px';
+  e.style.minWidth=cw+'px';e._items=r.items;e._raw=raw;e._fn=fn;e.dataset.otxt=r.s;
+  e.addEventListener('contextmenu',ev=>{ev.preventDefault();inspect(e,ev)});
  }
  fit(ov);
+ ov.querySelectorAll('.ti').forEach(e=>{e.dataset.osig=sig(e)});
  w._pg=pg;w._vp=vp;w._ol=ol;w._live=live;scanObjects(w).catch(()=>{});
 }
 function fit(ov){
@@ -272,6 +277,15 @@ function mkTi(ov,o){
  e.addEventListener('keydown',ev=>{if(ev.key==='Escape')e.blur();if(ev.key==='Enter'){ev.preventDefault();document.execCommand('insertText',false,'\n')}});
  return e;
 }
+
+/* ---------- helpers: change detection + inspector ---------- */
+const sig=e=>[e.style.fontSize,e.style.fontFamily,e.style.fontWeight,e.style.fontStyle,e.style.letterSpacing,e.dataset.col].join('|');
+const changed=e=>e.dataset.ed&&(e.textContent!==e.dataset.otxt||sig(e)!==e.dataset.osig||Math.abs(e.offsetLeft-(+e.dataset.ox))>.6||Math.abs(e.offsetTop-(+e.dataset.oy))>.6);
+function inspect(e,ev){
+ let p=$('#insp');if(!p){p=mk('pre');p.id='insp';document.body.append(p);p.onclick=()=>p.style.display='none'}
+ const cps=t=>Array.from(t||'').map(c=>'U+'+c.codePointAt(0).toString(16).toUpperCase().padStart(4,'0')).join(' ');
+ p.textContent=`PDF font : ${e._fn||'?'}\nBengali font chosen : ${e.dataset.bf||'-'}   match score : ${e.dataset.sc||'-'}\nraw from PDF : ${e._raw}\n${cps(e._raw)}\nshown as : ${e.dataset.otxt}\n${cps(e.dataset.otxt)}\n\n(click to close — send me this if a line looks wrong)`;
+ p.style.cssText=`display:block;left:${Math.min(ev.clientX,innerWidth-480)}px;top:${Math.min(ev.clientY,innerHeight-220)}px`}
 function mark(e){e.dataset.ed=1;e.style.color=e.dataset.col||'#000';e.style.background=e.dataset.bg||'transparent'}
 
 /* ---------- selection & toolbar ---------- */
@@ -437,18 +451,18 @@ let busy=false;
 const rend=async(pg,vp,tr,tf)=>{const c=cvs(Math.ceil(vp.width),Math.ceil(vp.height));await pg.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp,transform:tf,background:tr?'rgba(0,0,0,0)':undefined}).promise;return c};
 /* rebuild the stacking layers: page content below / between / above every lifted object, so z-order stays exact */
 async function relayer(w){
- const pg=w._pg,vp=w._vp,L=[...w._lifted].sort((a,b)=>a.o.i-b.o.i),ids=L.map(l=>l.o.i);
+ const pg=w._pg,vp=w._vp,vh=w._vh,L=[...w._lifted].sort((a,b)=>a.o.i-b.o.i),ids=L.map(l=>l.o.i);
  (w._sl||[]).forEach(c=>c.remove());w._sl=[];
- const g=w._c.getContext('2d');
+ const g=w._c.getContext('2d'),gd=w._d.getContext('2d');
  for(let k=0;k<=ids.length;k++){
   setOps(w,{lo:k?ids[k-1]:-1,hi:k<ids.length?ids[k]:1e9});
-  const cv=await rend(pg,vp,k>0);
-  if(k===0)g.clearRect(0,0,w._c.width,w._c.height);
-  g.drawImage(cv,0,0);
-  if(ids.length){cv.className='sl';cv.style.zIndex=2*k+1;w.insertBefore(cv,w._ov);w._sl.push(cv)}}
+  const cv=await rend(pg,vh,k>0);
+  if(k===0){g.clearRect(0,0,w._c.width,w._c.height);gd.clearRect(0,0,w._d.width,w._d.height);gd.drawImage(cv,0,0)}
+  g.drawImage(cv,0,0,w._c.width,w._c.height);
+  if(ids.length){cv.className='sl';cv.style.width=vp.width+'px';cv.style.height=vp.height+'px';cv.style.zIndex=2*k+1;w.insertBefore(cv,w._ov);w._sl.push(cv)}}
  setOps(w);
  L.forEach((l,k)=>{l.ob.style.zIndex=2*k+2});
- w._c.style.visibility=ids.length?'hidden':'visible'}
+ w._d.style.visibility=ids.length?'hidden':'visible'}
 /* picture at its native resolution (falls back to a high-res isolated render) */
 async function nativeImage(w,o){
  try{if(o.mask||o.clipped)return null;const T=o.T;if(!T||T[3]>=0||Math.abs(T[0]*T[2]+T[1]*T[3])>.02*Math.hypot(T[0],T[1])*Math.hypot(T[2],T[3]))return null;
@@ -611,9 +625,9 @@ function guardOk(cmds,adv,txt,cs,fs,ls){
  g2.fill(new Path2D(cmds.map(c=>c[0]==='Z'?'Z':c[0]+c.slice(1).map((v,i)=>i%2?(by-v*S):(v*S+bx)).join(' ')).join('')));
  const A=BN.inkMask(g1.getImageData(0,0,w,h).data,w,h,[255,255,255],150),B=BN.inkMask(g2.getImageData(0,0,w,h).data,w,h,[255,255,255],150);
  return BN.f1(A,B,w,h,2)>=.7}
-async function vecText(e,H,k,extra){
+async function vecStr(e,H,k,vp){
  try{
-  if(!window.fontkit)return false;
+  if(!window.fontkit)return null;
   const cs=getComputedStyle(e),fs=parseFloat(cs.fontSize),wt=+cs.fontWeight>=600?700:400,it=cs.fontStyle==='italic',L=e.innerText.replace(/\n$/,'').split('\n'),
    ls=cs.letterSpacing==='normal'?0:(parseFloat(cs.letterSpacing)||0),bl=baselineOf(e),d=e.dataset;
   let fams=[d.lat,d.bf,d.fam,...cs.fontFamily.split(',').map(x=>x.trim().replace(/^["']|["']$/g,''))].filter(f=>f&&!/^(sans-serif|serif|monospace|system-ui)$/.test(f));fams=[...new Set(fams)];
@@ -621,13 +635,14 @@ async function vecText(e,H,k,extra){
   for(let i=0;i<L.length;i++){if(!L[i])continue;
    let segs=await segsFor(L[i],fams,wt,it);
    if(!segs){for(const f of['Noto Sans Bengali','Arimo','Hind Siliguri']){if(!ST.has(f))await ST.ensure(f);if(!fams.includes(f))fams.push(f)}segs=await segsFor(L[i],fams,wt,it)}
-   if(!segs)return false;
-   const{cmds,adv}=glyphCmds(segs,fs,ls);if(!guardOk(cmds,adv,L[i],cs,fs,ls))return false;
-   const x0=e.offsetLeft*k,y0=H-(e.offsetTop+i*1.2*fs+bl)*k;
+   if(!segs)return null;
+   const{cmds,adv}=glyphCmds(segs,fs,ls);if(!guardOk(cmds,adv,L[i],cs,fs,ls))return null;
+   const pp=vp.convertToPdfPoint(e.offsetLeft,e.offsetTop+i*1.2*fs+bl),x0=pp[0],y0=pp[1];
    out+=cmds.map(c=>c[0]==='Z'?'h':c[0]==='M'?`${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} m`:c[0]==='L'?`${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} l`:
     `${f4(x0+c[1]*k)} ${f4(y0+c[2]*k)} ${f4(x0+c[3]*k)} ${f4(y0+c[4]*k)} ${f4(x0+c[5]*k)} ${f4(y0+c[6]*k)} c`).join('\n')+'\nf\n'}
-  extra.push(out);return true
- }catch(err){return false}}
+  return out
+ }catch(err){return null}}
+async function vecText(e,H,k,extra,vp){const s=await vecStr(e,H,k,vp);if(s){extra.push(s);return true}return false}
 async function drawReal(doc,pg,H,k,e,fm){
  try{if(e.dataset.emb)return false;const cs=getComputedStyle(e),txt=e.innerText.replace(/\n$/,'');
   if(/[\u0980-\u09FF]/.test(txt)||!LF.length||!window.fontkit)return false;
@@ -661,6 +676,21 @@ async function applyLifted(doc,pg,w){
     M=G.mul([1,0,0,-1,0,1],G.exportMatrix({...geo,sw:1,sh:1},Pu));
    items.push({k:'i',rb:ub,M,cover,build:cm=>PO.imageStr(nm,cm)})}}
  PO.rebuild(PDFLib,doc,pg,items)}
+/* edit the text INSIDE the PDF: original text operators are removed, new text goes in the same spot, using the PDF's own font whenever possible */
+async function applyTextEdits(doc,pg,w,H,k){
+ const done=new Set(),list=[...w._ov.querySelectorAll('.ti')].filter(changed);if(!list.length)return done;
+ const cx=PO.open(PDFLib,doc,pg),vp=w._vp;
+ for(const e of list){try{
+  if(!e._items||!e._items.length)continue;
+  const txt=e.textContent.replace(/\n$/,''),bn=BN.hasBn(txt)||BN.hasBn(e.dataset.otxt||''),
+   same=sig(e)===e.dataset.osig&&Math.abs(e.offsetLeft-(+e.dataset.ox))<=.6&&Math.abs(e.offsetTop-(+e.dataset.oy))<=.6;
+  const plan=PO.planText(cx,{items:e._items,text:txt},!bn&&same&&!/\n/.test(txt));
+  if(plan.mode==='none')continue;
+  if(plan.mode==='tj'){PO.applyText(cx,plan,null);done.add(e);continue}
+  if(!txt.trim()){PO.applyText(cx,plan,'');done.add(e);continue}
+  const str=await vecStr(e,H,k,vp);if(str&&PO.applyText(cx,plan,str))done.add(e);
+ }catch(err){}}
+ PO.finish(cx,[]);return done}
 $('#save').onclick=async()=>{
  if(!bytes)return alert('Open a PDF first');
  const btn=$('#save');btn.textContent='Saving…';
@@ -669,16 +699,16 @@ $('#save').onclick=async()=>{
   for(const w of document.querySelectorAll('.pg')){
    const pg=P[w._n-1],H=pg.getHeight(),extra=[];
    await applyLifted(doc,pg,w);
-   const ch=[...w._ov.children];
+   const done=await applyTextEdits(doc,pg,w,H,k),ch=[...w._ov.children];
    for(const e of ch){const d=e.dataset;
-    if(e.classList.contains('cv')||(e.classList.contains('ti')&&d.ed&&d.cw)){
+    if(e.classList.contains('cv')||(e.classList.contains('ti')&&changed(e)&&!done.has(e)&&d.cw)){
      const [r,g,b]=rgb(d.bg);
      pg.drawRectangle({x:(+d.ox-1)*k,y:H-(+d.oy+ +d.ch+1)*k,width:(+d.cw+2)*k,height:(+d.ch+2)*k,color:PDFLib.rgb(r/255,g/255,b/255),borderWidth:0});
     }
    }
    for(const e of ch){
-    if(e.classList.contains('ti')&&e.dataset.ed&&e.innerText.trim()){
-     if(!await drawReal(doc,pg,H,k,e,fm)&&!await vecText(e,H,k,extra)){const t=await textPng(e),im=await doc.embedPng(await buf(t.url));
+    if(e.classList.contains('ti')&&changed(e)&&!done.has(e)&&e.innerText.trim()){
+     if(!await drawReal(doc,pg,H,k,e,fm)&&!await vecText(e,H,k,extra,w._vp)){const t=await textPng(e),im=await doc.embedPng(await buf(t.url));
       pg.drawImage(im,{x:e.offsetLeft*k,y:H-(e.offsetTop+t.h)*k,width:t.w*k,height:t.h*k});}
     }else if(e.classList.contains('ob')&&!e.classList.contains('lf'))await drawOb(doc,pg,H,k,e);
    }

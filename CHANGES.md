@@ -1,4 +1,15 @@
-# PDF Editor 1.1 – what changed
+# PDF Editor 1.2 – what changed
+
+## 1.2: real in-place editing, sharp display, Bengali merge fix
+* **Edits happen inside the PDF.** The original text operators are removed from the page's content stream (no more cover boxes). New text is written in the same place.
+* **Original font reused.** If the PDF's embedded font contains the letters you typed (checked through its ToUnicode map), the new text is encoded with that very font -> same look, same size, still selectable/searchable.
+* If letters are missing from the embedded subset (or it is Bengali, or you changed font/size/position), vector outlines from the best matching full font are written instead, still in place.
+* **Untouched lines are never rewritten.** Clicking a line no longer changes it; only lines whose text, font, size, colour or position actually changed are saved.
+* **Sharp display:** pages are rendered at 2-3x and shown downscaled (was a fixed 1.5x bitmap).
+* **Bengali fix:** Chrome-made PDFs store every Bengali glyph as its own piece. The merge step inserted spurious spaces ("এক্স ে স") and dropped lone marks (ৈ). Merging is now Bengali-aware.
+* **Right-click any line = inspector** (PDF font, raw code points, chosen font, match score).
+
+# PDF Editor 1.1
 
 ## Shapes & pictures (smart objects)
 * Shapes are read from the PDF's real drawing instructions (exact outline, fill, stroke, clip, stroke width) – no more guessed boxes.
