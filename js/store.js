@@ -16,6 +16,7 @@ S.LATIN={arial:'Arimo',helvetica:'Arimo',timesnewroman:'Tinos',times:'Tinos',cou
 const key=(f,w,i)=>f+'|'+w+'|'+(i?1:0);
 const api=()=>root.api&&root.api.memGet?root.api:null;
 S.load=function(){return S.ready||(S.ready=(async()=>{
+ await S.loadKnowledge();
  try{const m=api()?await api().memGet():JSON.parse(localStorage.getItem('pdfeditor.mem')||'null');if(m&&m.fonts)S.mem=Object.assign(S.mem,m)}catch(e){}
  try{if(api())for(const e of await api().fontList())await S.register(e)}catch(e){}
 })())};
@@ -43,6 +44,13 @@ S.addUser=async function(file){
  if(api())ent.file=await api().fontSave(fam,w,it,file.name,buf);
  const k=key(fam,w,it),ff=new FontFace(fam,buf.slice(0),{weight:String(w),style:it?'italic':'normal'});await ff.load();document.fonts.add(ff);S.reg.add(k);S.bytes[k]=new Uint8Array(buf);return fam};
 /* what we learned about a PDF font (normalised name) */
+S.fixes={};   /* shared knowledge from the repo (knowledge/fixes.json): {fontKey:{shownWord:correctWord}} */
+S.loadKnowledge=async function(){try{const r=await fetch('knowledge/fixes.json',{cache:'no-store'});if(r.ok)S.fixes=await r.json()}catch(e){}};
+S.fixMap=k=>Object.assign({},S.fixes[k]||{},(S.mem.fonts[k]||{}).fix||{});
+S.applyFix=function(k,t){const m=S.fixMap(k);if(!Object.keys(m).length)return t;return t.split(' ').map(w=>m[w]!=null?m[w]:w).join(' ')};
+S.teach=function(k,word,fixed,src){if(!word||!fixed||word===fixed||/\s/.test(fixed))return false;
+ const f=S.mem.fonts[k]||(S.mem.fonts[k]={n:0});(f.fix=f.fix||{})[word]=fixed;(f.fsrc=f.fsrc||{})[word]=src||'user';S.save();return true};
+S.exportFixes=function(){const o={};for(const[k,v]of Object.entries(S.mem.fonts))if(v.fix&&Object.keys(v.fix).length)o[k]=Object.assign({},S.fixes[k]||{},v.fix);return o};
 S.recall=n=>S.mem.fonts[n]||null;
 S.learn=function(n,o){if(!n)return;const c=S.mem.fonts[n]||{n:0};
  S.mem.fonts[n]=Object.assign(c,o,{n:c.n+1,t:Date.now()});S.save()};
