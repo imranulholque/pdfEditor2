@@ -36,7 +36,8 @@ CS.scan=function(s){
  const num=a=>a.map(t=>+t.v);
  const col=(a,sp)=>{const v=num(a.filter(t=>t.t==='#'));if(v.length===1)return[v[0],v[0],v[0]].map(x=>Math.round(x*255));
   if(v.length===3)return v.map(x=>Math.round(x*255));if(v.length===4)return[0,1,2].map(i=>Math.round(255*(1-v[i])*(1-v[3])));return null};
- let args=[],depthBT=false,ord=0;
+ let args=[],ord=0,tm=[1,0,0,1,0,0],tlm=tm,tf='',tsz=0,tl=0,tr=0,adv=false,curBT=[];
+ const showOp=(tk,first,known)=>{const m=mul(tm,ctm),o={k:'t',x:m[4],y:m[5],font:tf,size:tsz,tr,known:known&&!adv,ctm:ctm.slice(),op:{s:first,e:tk.e,full:true},chainNext:false,bt:null,text:tk.v};out.push(o);curBT.push(o);adv=true};
  for(const tk of T){
   if(tk.t!=='o'){args.push(tk);continue}
   const o=tk.v,a=args;args=[];
@@ -60,6 +61,17 @@ CS.scan=function(s){
      out.push({k:'p',b,fill:f?fill:null,stroke:sk?strokeC:null,lw:lw*Math.hypot(ctm[0],ctm[1]),eo:/\*/.test(o),op:{s:ps>=0?ps:tk.s,e:tk.e,full:ps>=0},ctm:ctm.slice(),clip,n:ord++})}
     pb=null;ps=-1;break}
    case'W':case'W*':clip=true;break;
+   case'BT':tm=[1,0,0,1,0,0];tlm=tm;adv=false;curBT=[];break;
+   case'ET':for(let i=0;i<curBT.length;i++){curBT[i].bt={s:tk.s,e:tk.e};if(i<curBT.length-1)curBT[i].chainNext=!curBT[i+1].known}curBT=[];break;
+   case'Tf':if(a.length>=2){tf=a[0].v.slice(1);tsz=+a[1].v}break;
+   case'Td':tlm=mul([1,0,0,1,+a[0].v,+a[1].v],tlm);tm=tlm;adv=false;break;
+   case'TD':tl=-a[1].v;tlm=mul([1,0,0,1,+a[0].v,+a[1].v],tlm);tm=tlm;adv=false;break;
+   case'Tm':if(a.length===6){tm=tlm=num(a);adv=false}break;
+   case'T*':tlm=mul([1,0,0,1,0,-tl],tlm);tm=tlm;adv=false;break;
+   case'TL':tl=+a[0].v;break;
+   case'Tr':tr=+a[0].v;break;
+   case'Tj':case'TJ':showOp(tk,first,true);break;
+   case"'":case'"':tlm=mul([1,0,0,1,0,-tl],tlm);tm=tlm;adv=false;showOp(tk,first,false);break;
    case'n':pb=null;ps=-1;break;
    case'Do':out.push({k:'i',b:{x0:Math.min(ctm[4],ctm[4]+ctm[0],ctm[4]+ctm[2],ctm[4]+ctm[0]+ctm[2]),y0:Math.min(ctm[5],ctm[5]+ctm[1],ctm[5]+ctm[3],ctm[5]+ctm[1]+ctm[3]),
      x1:Math.max(ctm[4],ctm[4]+ctm[0],ctm[4]+ctm[2],ctm[4]+ctm[0]+ctm[2]),y1:Math.max(ctm[5],ctm[5]+ctm[1],ctm[5]+ctm[3],ctm[5]+ctm[1]+ctm[3])},
@@ -71,6 +83,8 @@ const iou=(a,b)=>{const x0=Math.max(a.x0,b.x0),y0=Math.max(a.y0,b.y0),x1=Math.mi
  if(x1<=x0||y1<=y0){const aw=a.x1-a.x0,ah=a.y1-a.y0;return(aw<.01||ah<.01)&&Math.abs(a.x0-b.x0)<1&&Math.abs(a.y0-b.y0)<1?.5:0}
  const i=(x1-x0)*(y1-y0),u=(a.x1-a.x0)*(a.y1-a.y0)+(b.x1-b.x0)*(b.y1-b.y0)-i;return u>0?i/u:0};
 /* find the scanned op that best matches a bbox (user space) of kind k; used = Set of already matched ordinals */
+CS.matchText=function(list,x,y,used){let best=null,bd=.75;
+ for(const o of list){if(o.k!=='t'||!o.known||(used&&used.has(o)))continue;const d=Math.hypot(o.x-x,o.y-y);if(d<bd){bd=d;best=o}}return best};
 CS.match=function(list,k,b,used){let best=null,bs=.8;
  for(const o of list){if(o.k!==k||(used&&used.has(o.n)))continue;const s=iou(o.b,b);if(s>bs){bs=s;best=o}}return best};
 /* neutralise the given ops: paint ops become 'n', images are cut out */
